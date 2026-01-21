@@ -98,6 +98,8 @@ def login(license_key: str | None, api_url: str | None) -> None:
             console.print("[green]✓[/green] Logged in successfully!")
             console.print(f"   Email: {info.email or 'N/A'}")
             console.print(f"   Plan: {info.plan}")
+            if info.organization:
+                console.print(f"   Organization: {info.organization}")
             console.print()
             console.print("[dim]You can now run scans with 'slopless scan'[/dim]")
 
@@ -151,6 +153,10 @@ def whoami() -> None:
                 console.print("[green]✓[/green] License is valid")
                 console.print(f"   Email: {info.email or 'N/A'}")
                 console.print(f"   Plan: {info.plan}")
+                if info.organization:
+                    console.print(f"   Organization: {info.organization}")
+                    if info.seats:
+                        console.print(f"   Seats: {info.seats}")
                 if info.usage_limit:
                     console.print(f"   Usage: {info.usage_count}/{info.usage_limit} scans this month")
             else:

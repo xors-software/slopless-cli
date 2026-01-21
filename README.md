@@ -1,90 +1,146 @@
-# Slopless CLI
+# Slopless
 
-Security scanner for vibe-coded apps. Find vulnerabilities in your code using AI-powered analysis.
+AI-powered security scanner for your code. Find vulnerabilities before they find you.
 
 ## Installation
 
-```bash
-# Install via pipx (recommended)
-pipx install slopless
+### Quick Install (Recommended)
 
-# Or via pip
-pip install slopless
+```bash
+# macOS / Linux
+curl -fsSL https://unslop.dev/install.sh | bash
+
+# Or with pipx (if you have Python)
+pipx install slopless
+```
+
+### Install from Source
+
+```bash
+# Clone the repo
+git clone https://github.com/xors-software/slopless-cli.git
+cd slopless-cli
+
+# Install with pipx (recommended)
+pipx install .
+
+# Or with pip
+pip install .
+```
+
+### Verify Installation
+
+```bash
+slopless --version
 ```
 
 ## Quick Start
 
+### 1. Get a License Key
+
+Get your license key at [unslop.dev/pricing](https://unslop.dev/pricing)
+
+### 2. Login
+
 ```bash
-# 1. Login with your license key
-slopless login sk-slopless-your-key
+slopless login
+# Enter your license key when prompted
+```
 
-# 2. Scan a GitHub repository
-slopless scan owner/repo
+### 3. Scan Your Code
 
-# 3. Or scan a local directory
+```bash
+# Scan a GitHub repository
+slopless scan facebook/react
+
+# Scan a local directory
 slopless scan ./my-project
+
+# Scan current directory
+slopless scan .
 ```
 
 ## Commands
 
-### `slopless login`
+| Command | Description |
+|---------|-------------|
+| `slopless login` | Authenticate with your license key |
+| `slopless scan <target>` | Scan a repository for vulnerabilities |
+| `slopless whoami` | Check your license status |
+| `slopless logout` | Remove stored credentials |
 
-Authenticate with your license key.
-
-```bash
-slopless login                      # Interactive prompt
-slopless login sk-slopless-abc123   # Provide key directly
-```
-
-### `slopless scan`
-
-Scan a repository for security vulnerabilities.
+## Scan Options
 
 ```bash
-slopless scan owner/repo             # Scan GitHub repo
-slopless scan ./path/to/project      # Scan local directory
-slopless scan . --output report.json # Save report to file
-slopless scan . --format markdown    # Output as markdown
-slopless scan . --format json        # Output as JSON
-```
+slopless scan <target> [OPTIONS]
 
 Options:
-- `--skip-assessment` - Skip architecture assessment phase
-- `--skip-threat-model` - Skip threat modeling phase
-- `--skip-review` - Skip vulnerability review phase
-- `-o, --output FILE` - Save report to JSON file
-- `--format [rich|json|markdown]` - Output format (default: rich)
-
-### `slopless whoami`
-
-Check your authentication status and license info.
-
-```bash
-slopless whoami
+  --skip-assessment     Skip architecture assessment phase
+  --skip-threat-model   Skip threat modeling phase  
+  --skip-review         Skip vulnerability review phase
+  -o, --output FILE     Save report to JSON file
+  --format FORMAT       Output format: rich (default), json, markdown
 ```
 
-### `slopless logout`
-
-Remove stored credentials from this machine.
+## Examples
 
 ```bash
-slopless logout
+# Scan and save report
+slopless scan owner/repo --output report.json
+
+# Markdown report (great for GitHub issues)
+slopless scan . --format markdown > SECURITY.md
+
+# Quick scan (skip some phases)
+slopless scan . --skip-assessment --skip-threat-model
+
+# JSON output for CI/CD pipelines
+slopless scan . --format json | jq '.vulnerabilities | length'
 ```
 
-## Configuration
+## Environment Variables
 
-Credentials are stored in `~/.slopless/credentials.json`.
+| Variable | Description |
+|----------|-------------|
+| `SLOPLESS_LICENSE_KEY` | License key (overrides stored credentials) |
+| `SLOPLESS_API_URL` | API endpoint (default: https://api.unslop.dev) |
+| `SLOPLESS_CONFIG_DIR` | Config directory (default: ~/.slopless) |
 
-Environment variables:
-- `SLOPLESS_LICENSE_KEY` - License key (overrides stored credentials)
-- `SLOPLESS_API_URL` - API endpoint (for development)
-- `SLOPLESS_CONFIG_DIR` - Config directory location
+## CI/CD Integration
 
-## Get a License
+### GitHub Actions
 
-Purchase a license at [https://unslop.dev/pricing](https://unslop.dev/pricing)
+```yaml
+- name: Security Scan
+  env:
+    SLOPLESS_LICENSE_KEY: ${{ secrets.SLOPLESS_LICENSE_KEY }}
+  run: |
+    pipx install slopless
+    slopless scan . --format json --output security-report.json
+```
+
+### GitLab CI
+
+```yaml
+security_scan:
+  script:
+    - pipx install slopless
+    - slopless scan . --format json --output security-report.json
+  variables:
+    SLOPLESS_LICENSE_KEY: $SLOPLESS_LICENSE_KEY
+```
+
+## Requirements
+
+- Python 3.11 or higher
+- Internet connection (scans run on our servers)
 
 ## Support
 
-- Documentation: [https://unslop.dev/docs](https://unslop.dev/docs)
-- Issues: [https://github.com/xors-software/slopless-cli/issues](https://github.com/xors-software/slopless-cli/issues)
+- **Docs**: [unslop.dev/docs](https://unslop.dev/docs)
+- **Issues**: [github.com/xors-software/slopless-cli/issues](https://github.com/xors-software/slopless-cli/issues)
+- **Email**: support@unslop.dev
+
+## License
+
+MIT License - see [LICENSE](LICENSE) for details.

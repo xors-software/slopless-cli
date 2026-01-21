@@ -35,6 +35,9 @@ class LicenseInfo:
     expires_at: str | None = None
     usage_limit: int | None = None
     usage_count: int = 0
+    # Organization support - org keys can be shared across teams
+    organization: str | None = None
+    seats: int | None = None
 
 
 @dataclass
@@ -184,4 +187,6 @@ async def validate_license(license_key: str, api_url: str | None = None) -> Lice
             expires_at=data.get("expires_at"),
             usage_limit=data.get("usage_limit"),
             usage_count=data.get("usage_count", 0),
+            organization=data.get("organization"),
+            seats=data.get("seats"),
         )
