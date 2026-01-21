@@ -34,7 +34,7 @@ slopless --version
 
 ### 1. Get a License Key
 
-Get your license key at [unslop.dev/pricing](https://unslop.dev/pricing)
+Get your license key at [slopless.work](https://slopless.work)
 
 ### 2. Login
 
@@ -99,7 +99,7 @@ slopless scan . --format json | jq '.vulnerabilities | length'
 | Variable | Description |
 |----------|-------------|
 | `SLOPLESS_LICENSE_KEY` | License key (overrides stored credentials) |
-| `SLOPLESS_API_URL` | API endpoint (default: https://api.unslop.dev) |
+| `SLOPLESS_API_URL` | API endpoint (default: https://api.slopless.work) |
 | `SLOPLESS_CONFIG_DIR` | Config directory (default: ~/.slopless) |
 
 ## CI/CD Integration
@@ -133,9 +133,9 @@ security_scan:
 
 ## Support
 
-- **Docs**: [unslop.dev/docs](https://unslop.dev/docs)
+- **Website**: [slopless.work](https://slopless.work)
 - **Issues**: [github.com/xors-software/slopless-cli/issues](https://github.com/xors-software/slopless-cli/issues)
-- **Email**: support@unslop.dev
+- **Email**: support@xors.software
 
 ## License
 

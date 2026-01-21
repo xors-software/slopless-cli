@@ -49,7 +49,7 @@ def cli() -> None:
         slopless login <your-license-key>
         slopless scan owner/repo
 
-    Get a license at https://unslop.dev/pricing
+    Get a license at https://slopless.work
     """
     pass
 
@@ -66,7 +66,7 @@ def login(license_key: str | None, api_url: str | None) -> None:
     """Authenticate with your license key.
 
     Your license key grants access to the security scanning service.
-    Purchase a license at https://unslop.dev/pricing
+    Purchase a license at https://slopless.work
 
     Examples:
         slopless login                           # Interactive prompt
@@ -88,7 +88,7 @@ def login(license_key: str | None, api_url: str | None) -> None:
 
             if not info.valid:
                 console.print("[red]✗[/red] Invalid license key")
-                console.print("[dim]Check your key and try again, or get one at https://unslop.dev[/dim]")
+                console.print("[dim]Check your key and try again, or get one at https://slopless.work[/dim]")
                 raise click.Abort()
 
             # Save credentials
@@ -210,7 +210,7 @@ def scan(
     if not license_key:
         console.print("[red]✗[/red] Not logged in")
         console.print("[dim]Run 'slopless login' to authenticate with your license key[/dim]")
-        console.print("[dim]Get a license at https://unslop.dev/pricing[/dim]")
+        console.print("[dim]Get a license at https://slopless.work[/dim]")
         raise click.Abort()
 
     asyncio.run(
