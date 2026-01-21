@@ -1,0 +1,50 @@
+[project]
+name = "slopless"
+version = "0.1.0"
+description = "Security scanner for vibe-coded apps"
+readme = "README.md"
+license = "MIT"
+authors = [
+    { name = "Xiangan He", email = "xiangan@xors.software" }
+]
+keywords = ["security", "scanner", "cli", "code-analysis", "vulnerabilities"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Security",
+    "Topic :: Software Development :: Quality Assurance",
+]
+requires-python = ">=3.11"
+dependencies = [
+    "click>=8.1.0",
+    "httpx>=0.27.0",
+    "rich>=13.0.0",
+]
+
+[project.scripts]
+slopless = "slopless.cli:cli"
+
+[project.urls]
+Homepage = "https://unslop.dev"
+Documentation = "https://unslop.dev/docs"
+Repository = "https://github.com/xors-software/slopless-cli"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["slopless"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "SIM"]
+ignore = ["E501"]
