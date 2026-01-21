@@ -4,17 +4,7 @@ AI-powered security scanner for your code. Find vulnerabilities before they find
 
 ## Installation
 
-### Quick Install (Recommended)
-
-```bash
-# macOS / Linux
-curl -fsSL https://unslop.dev/install.sh | bash
-
-# Or with pipx (if you have Python)
-pipx install slopless
-```
-
-### Install from Source
+### Install from GitHub
 
 ```bash
 # Clone the repo
@@ -26,6 +16,12 @@ pipx install .
 
 # Or with pip
 pip install .
+```
+
+### Install from PyPI (coming soon)
+
+```bash
+pipx install slopless
 ```
 
 ### Verify Installation

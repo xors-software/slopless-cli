@@ -18,7 +18,7 @@ from typing import Any
 import httpx
 
 # Default hosted API endpoint
-DEFAULT_API_URL = "https://api.unslop.dev"
+DEFAULT_API_URL = "https://api.slopless.work"
 
 # Local config directory
 DEFAULT_CONFIG_DIR = Path.home() / ".slopless"
