@@ -190,3 +190,119 @@ async def validate_license(license_key: str, api_url: str | None = None) -> Lice
             organization=data.get("organization"),
             seats=data.get("seats"),
         )
+
+
+# =============================================================================
+# Version Check / Auto-Update
+# =============================================================================
+
+@dataclass
+class VersionInfo:
+    """Information about CLI versions."""
+    current_version: str
+    latest_version: str
+    update_available: bool
+    update_url: str = "https://github.com/xors-software/slopless-cli"
+    changelog_url: str | None = None
+
+
+def get_version_cache_path() -> Path:
+    """Get path to version check cache file."""
+    return get_config_dir() / "version_cache.json"
+
+
+def should_check_version() -> bool:
+    """Check if we should check for updates (once per day max)."""
+    cache_path = get_version_cache_path()
+    if not cache_path.exists():
+        return True
+    
+    try:
+        from datetime import datetime, timedelta
+        data = json.loads(cache_path.read_text())
+        last_check = datetime.fromisoformat(data.get("last_check", "2000-01-01"))
+        return datetime.now() - last_check > timedelta(hours=24)
+    except Exception:
+        return True
+
+
+def save_version_cache(latest_version: str) -> None:
+    """Save version check result to cache."""
+    from datetime import datetime
+    cache_path = get_version_cache_path()
+    cache_path.write_text(json.dumps({
+        "last_check": datetime.now().isoformat(),
+        "latest_version": latest_version,
+    }))
+
+
+def get_cached_latest_version() -> str | None:
+    """Get cached latest version without hitting API."""
+    cache_path = get_version_cache_path()
+    if not cache_path.exists():
+        return None
+    try:
+        data = json.loads(cache_path.read_text())
+        return data.get("latest_version")
+    except Exception:
+        return None
+
+
+async def check_for_updates(current_version: str, force: bool = False) -> VersionInfo | None:
+    """Check if a newer version is available.
+    
+    Args:
+        current_version: The currently installed version
+        force: If True, bypass the once-per-day cache
+        
+    Returns:
+        VersionInfo if check was performed, None if skipped
+    """
+    if not force and not should_check_version():
+        # Use cached result
+        cached = get_cached_latest_version()
+        if cached:
+            return VersionInfo(
+                current_version=current_version,
+                latest_version=cached,
+                update_available=_version_is_newer(cached, current_version),
+            )
+        return None
+    
+    url = get_api_url()
+    
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(f"{url}/v1/cli/version")
+            
+            if response.status_code != 200:
+                return None
+            
+            data = response.json()
+            latest = data.get("latest_version", current_version)
+            
+            # Cache the result
+            save_version_cache(latest)
+            
+            return VersionInfo(
+                current_version=current_version,
+                latest_version=latest,
+                update_available=_version_is_newer(latest, current_version),
+                changelog_url=data.get("changelog_url"),
+            )
+    except Exception:
+        # Silently fail - don't block CLI usage for version checks
+        return None
+
+
+def _version_is_newer(latest: str, current: str) -> bool:
+    """Compare version strings (simple semver comparison)."""
+    try:
+        def parse_version(v: str) -> tuple[int, ...]:
+            # Strip leading 'v' if present
+            v = v.lstrip("v")
+            return tuple(int(x) for x in v.split(".")[:3])
+        
+        return parse_version(latest) > parse_version(current)
+    except Exception:
+        return False
