@@ -274,9 +274,10 @@ def whoami() -> None:
 
 @cli.command()
 @click.argument("target", default=".")
-@click.option("--skip-assessment", is_flag=True, help="Skip architecture assessment")
-@click.option("--skip-threat-model", is_flag=True, help="Skip threat modeling")
-@click.option("--skip-review", is_flag=True, help="Skip vulnerability review")
+@click.option("--auto-fix/--no-fix", default=True, help="Generate fixes for vulnerabilities")
+@click.option("--cross-validate/--no-validate", default=True, help="Cross-validate HIGH/CRITICAL findings")
+@click.option("--parallel", default=3, help="Number of parallel fix candidates")
+@click.option("--polish", is_flag=True, help="Run polish agent after security scan")
 @click.option("--output", "-o", type=click.Path(), help="Save report to JSON file")
 @click.option(
     "--format",
@@ -287,23 +288,28 @@ def whoami() -> None:
 )
 def scan(
     target: str,
-    skip_assessment: bool,
-    skip_threat_model: bool,
-    skip_review: bool,
+    auto_fix: bool,
+    cross_validate: bool,
+    parallel: int,
+    polish: bool,
     output: str | None,
     output_format: str,
 ) -> None:
     """Scan a repository for security vulnerabilities.
 
+    Uses unified agent architecture:
+    - SecurityAgent: Combined STRIDE threat modeling + vulnerability detection (OPUS)
+    - CodingAgent: Parallel fix generation with candidate selection (SONNET)
+    - PolishAgent: Optional UX/code polish (SONNET)
+
     TARGET can be a local path or a GitHub repository.
 
     Examples:
-        slopless scan                              # Scan current directory
-        slopless scan /path/to/repo                # Scan local path
+        slopless scan                              # Scan current directory with fixes
+        slopless scan /path/to/repo --no-fix      # Scan without generating fixes
         slopless scan owner/repo                   # Scan GitHub repo
-        slopless scan github.com/owner/repo        # Full GitHub URL
         slopless scan . --output report.json       # Save report
-        slopless scan . --format markdown          # Markdown output
+        slopless scan . --polish                   # Run polish after security
     """
     # Check authentication
     license_key = get_license_key()
@@ -316,9 +322,10 @@ def scan(
     asyncio.run(
         _run_scan(
             target,
-            skip_assessment,
-            skip_threat_model,
-            skip_review,
+            auto_fix,
+            cross_validate,
+            parallel,
+            polish,
             output,
             output_format,
         )
@@ -753,13 +760,14 @@ def _git_push(set_upstream: bool = False) -> bool:
 
 async def _run_scan(
     target: str,
-    skip_assessment: bool,
-    skip_threat_model: bool,
-    skip_review: bool,
+    auto_fix: bool,
+    cross_validate: bool,
+    parallel: int,
+    polish: bool,
     output: str | None,
     output_format: str,
 ) -> None:
-    """Execute the scan via the hosted API."""
+    """Execute the scan via the hosted API using unified agents."""
     # Determine if target is a GitHub repo
     github_patterns = [
         r"^https?://github\.com/([^/]+/[^/]+)",
@@ -779,12 +787,19 @@ async def _run_scan(
     api_url = get_api_url()
     headers = get_auth_headers()
 
+    # Build unified scan options
+    scan_options = {
+        "auto_fix": auto_fix,
+        "cross_validate": cross_validate,
+        "parallel_candidates": parallel,
+        "polish": polish,
+    }
+
     if github_repo:
         # Scan GitHub repo via API
         console.print(f"[bold]🛡️ Scanning:[/bold] {github_repo}")
-        result = await _scan_github_repo(
-            api_url, headers, github_repo, skip_assessment, skip_threat_model, skip_review
-        )
+        console.print(f"[dim]Agents: SecurityAgent{' + CodingAgent' if auto_fix else ''}{' + PolishAgent' if polish else ''}[/dim]")
+        result = await _scan_github_repo(api_url, headers, github_repo, scan_options)
     else:
         # Scan local path via upload
         local_path = Path(target)
@@ -793,9 +808,8 @@ async def _run_scan(
             return
 
         console.print(f"[bold]🛡️ Scanning:[/bold] {local_path.resolve()}")
-        result = await _scan_local_path(
-            api_url, headers, local_path, skip_assessment, skip_threat_model, skip_review
-        )
+        console.print(f"[dim]Agents: SecurityAgent{' + CodingAgent' if auto_fix else ''}{' + PolishAgent' if polish else ''}[/dim]")
+        result = await _scan_local_path(api_url, headers, local_path, scan_options)
 
     if not result:
         return
@@ -828,21 +842,17 @@ async def _scan_github_repo(
     api_url: str,
     headers: dict,
     github_repo: str,
-    skip_assessment: bool,
-    skip_threat_model: bool,
-    skip_review: bool,
+    scan_options: dict,
 ) -> dict | None:
-    """Scan a GitHub repository via the API."""
+    """Scan a GitHub repository via the unified API."""
     try:
         async with httpx.AsyncClient(timeout=300.0) as client:
-            with console.status("[bold blue]Scanning repository...[/bold blue]"):
+            with console.status("[bold blue]Running SecurityAgent...[/bold blue]"):
                 response = await client.post(
                     f"{api_url}/v1/proxy/scan/github",
                     json={
                         "github_repo": github_repo,
-                        "skip_assessment": skip_assessment,
-                        "skip_threat_model": skip_threat_model,
-                        "skip_review": skip_review,
+                        **scan_options,
                     },
                     headers=headers,
                 )
@@ -867,11 +877,9 @@ async def _scan_local_path(
     api_url: str,
     headers: dict,
     local_path: Path,
-    skip_assessment: bool,
-    skip_threat_model: bool,
-    skip_review: bool,
+    scan_options: dict,
 ) -> dict | None:
-    """Scan a local directory by uploading it to the API."""
+    """Scan a local directory by uploading it to the unified API."""
     console.print("[dim]Zipping directory...[/dim]")
 
     zip_buffer = _create_repo_zip(local_path)
@@ -885,14 +893,15 @@ async def _scan_local_path(
 
     try:
         async with httpx.AsyncClient(timeout=300.0) as client:
-            with console.status("[bold blue]Uploading and scanning...[/bold blue]"):
+            with console.status("[bold blue]Running SecurityAgent...[/bold blue]"):
                 response = await client.post(
                     f"{api_url}/v1/proxy/scan/upload",
                     files={"file": ("repo.zip", zip_buffer, "application/zip")},
                     data={
-                        "skip_assessment": str(skip_assessment).lower(),
-                        "skip_threat_model": str(skip_threat_model).lower(),
-                        "skip_review": str(skip_review).lower(),
+                        "auto_fix": str(scan_options.get("auto_fix", True)).lower(),
+                        "cross_validate": str(scan_options.get("cross_validate", True)).lower(),
+                        "parallel_candidates": str(scan_options.get("parallel_candidates", 3)),
+                        "polish": str(scan_options.get("polish", False)).lower(),
                     },
                     headers=headers,
                 )
