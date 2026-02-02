@@ -75,6 +75,7 @@ slopless feature "Add API rate limiting" -b feature/rate-limit -c
 |---------|-------------|
 | `slopless login` | Authenticate with your license key |
 | `slopless scan <target>` | Scan a repository for vulnerabilities |
+| `slopless review-pr <url>` | Review a pull request for issues |
 | `slopless feature "description"` | Implement a feature using AI |
 | `slopless git <command>` | Git utilities for feature development |
 | `slopless update` | Update to the latest version |
@@ -95,6 +96,59 @@ Update manually:
 slopless update           # Update to latest
 slopless update --check   # Just check for updates
 ```
+
+## PR Review
+
+The `review-pr` command analyzes pull requests for security issues, architecture violations, and code quality problems.
+
+```bash
+slopless review-pr <pr-url> [OPTIONS]
+
+Options:
+  --project-id ID        Use specific project for architecture context
+  --no-security          Skip security checks
+  --no-architecture      Skip architecture checks  
+  --no-quality           Skip code quality checks
+  -o, --output FILE      Save report to JSON file
+  --format FORMAT        Output format: rich (default), json, markdown
+  --github-token TOKEN   GitHub token (or use GITHUB_TOKEN env var)
+```
+
+### How It Works
+
+1. **Fetch Diff**: Retrieves the PR diff from GitHub
+2. **Load Context**: Uses architecture context from previous Slopless scans (if available)
+3. **Analyze**: Reviews changed code for security issues, architecture violations, and quality problems
+4. **Report**: Returns findings with verdict (approve/request_changes/comment)
+
+### Examples
+
+```bash
+# Review a PR with full URL
+slopless review-pr https://github.com/owner/repo/pull/42
+
+# Shorthand format
+slopless review-pr owner/repo#42
+
+# Security-only review
+slopless review-pr owner/repo#42 --no-architecture --no-quality
+
+# Save as JSON for CI integration
+slopless review-pr owner/repo#42 --format json -o review.json
+
+# With explicit GitHub token
+GITHUB_TOKEN=ghp_xxx slopless review-pr owner/repo#42
+```
+
+### Context from Previous Scans
+
+If you've previously scanned the repository with `slopless scan`, the PR review will use that context to:
+- Understand the codebase architecture
+- Check for violations of existing patterns
+- Avoid flagging known issues
+- Provide more relevant suggestions
+
+Without prior context, Slopless performs differential analysis on the PR changes alone.
 
 ## Feature Implementation
 

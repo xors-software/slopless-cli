@@ -333,6 +333,423 @@ def scan(
 
 
 # =============================================================================
+# PR Review Commands
+# =============================================================================
+
+
+@cli.command("review-pr")
+@click.argument("pr_url")
+@click.option("--project-id", default=None, help="Project ID for architecture context (auto-detected if not provided)")
+@click.option("--no-security", is_flag=True, help="Skip security checks")
+@click.option("--no-architecture", is_flag=True, help="Skip architecture checks")
+@click.option("--no-quality", is_flag=True, help="Skip code quality checks")
+@click.option("--output", "-o", type=click.Path(), help="Save report to JSON file")
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["rich", "json", "markdown"]),
+    default="rich",
+    help="Output format",
+)
+@click.option("--github-token", envvar="GITHUB_TOKEN", default=None, help="GitHub token (or set GITHUB_TOKEN env var)")
+def review_pr(
+    pr_url: str,
+    project_id: str | None,
+    no_security: bool,
+    no_architecture: bool,
+    no_quality: bool,
+    output: str | None,
+    output_format: str,
+    github_token: str | None,
+) -> None:
+    """Review a pull request for security and code quality issues.
+
+    Uses existing scan context from Slopless to provide intelligent,
+    architecture-aware PR reviews. If no prior scan exists, performs
+    differential analysis on the PR changes.
+
+    PR_URL should be a GitHub pull request URL like:
+        https://github.com/owner/repo/pull/123
+
+    Examples:
+        slopless review-pr https://github.com/owner/repo/pull/42
+        slopless review-pr owner/repo#42
+        slopless review-pr https://github.com/owner/repo/pull/42 --no-quality
+        slopless review-pr owner/repo#42 -o review.json --format json
+    """
+    # Check authentication
+    license_key = get_license_key()
+    if not license_key:
+        console.print("[red]✗[/red] Not logged in")
+        console.print("[dim]Run 'slopless login' to authenticate with your license key[/dim]")
+        raise click.Abort()
+
+    asyncio.run(
+        _run_pr_review(
+            pr_url=pr_url,
+            project_id=project_id,
+            check_security=not no_security,
+            check_architecture=not no_architecture,
+            check_quality=not no_quality,
+            output=output,
+            output_format=output_format,
+            github_token=github_token,
+        )
+    )
+
+
+def _parse_pr_shorthand(pr_input: str) -> str:
+    """Convert shorthand PR references to full URLs.
+    
+    Accepts:
+        - Full URL: https://github.com/owner/repo/pull/123
+        - Shorthand: owner/repo#123
+    
+    Returns full GitHub PR URL.
+    """
+    # Already a full URL
+    if pr_input.startswith("http"):
+        return pr_input
+    
+    # Shorthand format: owner/repo#123
+    match = re.match(r"^([^/]+/[^#]+)#(\d+)$", pr_input)
+    if match:
+        repo_path = match.group(1)
+        pr_number = match.group(2)
+        return f"https://github.com/{repo_path}/pull/{pr_number}"
+    
+    console.print(f"[red]✗[/red] Invalid PR reference: {pr_input}")
+    console.print("[dim]Use: https://github.com/owner/repo/pull/123 or owner/repo#123[/dim]")
+    raise click.Abort()
+
+
+async def _run_pr_review(
+    pr_url: str,
+    project_id: str | None,
+    check_security: bool,
+    check_architecture: bool,
+    check_quality: bool,
+    output: str | None,
+    output_format: str,
+    github_token: str | None,
+) -> None:
+    """Execute PR review via the hosted API."""
+    # Normalize PR URL
+    pr_url = _parse_pr_shorthand(pr_url)
+    
+    # Extract repo info for display
+    pr_match = re.search(r"github\.com/([^/]+/[^/]+)/pull/(\d+)", pr_url)
+    if not pr_match:
+        console.print("[red]✗[/red] Could not parse PR URL")
+        return
+    
+    repo_path = pr_match.group(1)
+    pr_number = pr_match.group(2)
+    
+    console.print(f"[bold]🔍 Reviewing PR:[/bold] {repo_path}#{pr_number}")
+    
+    checks = []
+    if check_security:
+        checks.append("security")
+    if check_architecture:
+        checks.append("architecture")
+    if check_quality:
+        checks.append("quality")
+    console.print(f"[dim]Checks: {', '.join(checks)}[/dim]")
+    console.print()
+    
+    api_url = get_api_url()
+    headers = get_auth_headers()
+    
+    # Build request
+    request_data = {
+        "pr_url": pr_url,
+        "check_security": check_security,
+        "check_architecture": check_architecture,
+        "check_code_quality": check_quality,
+    }
+    
+    if project_id:
+        request_data["project_id"] = project_id
+    
+    if github_token:
+        request_data["access_token"] = github_token
+    
+    try:
+        async with httpx.AsyncClient(timeout=180.0) as client:
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                console=console,
+            ) as progress:
+                task = progress.add_task("Analyzing PR diff...", total=None)
+                
+                response = await client.post(
+                    f"{api_url}/pr-review/analyze",
+                    json=request_data,
+                    headers=headers,
+                )
+                
+                progress.update(task, description="Processing review results...")
+            
+            if response.status_code == 401:
+                console.print("[red]✗[/red] Authentication failed")
+                if "GitHub" in response.text or "token" in response.text.lower():
+                    console.print("[dim]GitHub token required. Use --github-token or set GITHUB_TOKEN env var[/dim]")
+                else:
+                    console.print("[dim]License key may be expired. Run 'slopless login' to re-authenticate[/dim]")
+                return
+            
+            if response.status_code == 404:
+                console.print("[red]✗[/red] PR not found or not accessible")
+                console.print("[dim]Check the PR URL and ensure you have access to the repository[/dim]")
+                return
+            
+            if response.status_code != 200:
+                try:
+                    error = response.json().get("detail", response.text)
+                except Exception:
+                    error = response.text
+                console.print(f"[red]✗[/red] Review failed: {error}")
+                return
+            
+            result = response.json()
+            
+    except httpx.TimeoutException:
+        console.print("[red]✗[/red] Request timed out")
+        console.print("[dim]The PR may be very large. Try again or review locally.[/dim]")
+        return
+    except httpx.ConnectError:
+        console.print("[red]✗[/red] Could not connect to Slopless API")
+        console.print("[dim]Check your internet connection[/dim]")
+        return
+    except Exception as e:
+        console.print(f"[red]✗[/red] Error: {e}")
+        return
+    
+    # Check for success
+    if not result.get("success"):
+        console.print(f"[red]✗[/red] Review failed: {result.get('error', 'Unknown error')}")
+        return
+    
+    # Save to file if requested
+    if output:
+        output_path = Path(output)
+        output_path.write_text(json.dumps(result, indent=2))
+        console.print(f"[green]✓[/green] Report saved to: {output_path}")
+        console.print()
+    
+    # Display based on format
+    if output_format == "json":
+        console.print(json.dumps(result, indent=2))
+    elif output_format == "markdown":
+        _print_pr_review_markdown(result)
+    else:
+        _print_pr_review_rich(result)
+
+
+def _print_pr_review_rich(result: dict) -> None:
+    """Print PR review results with rich formatting."""
+    verdict = result.get("verdict", "comment")
+    risk_level = result.get("risk_level", "medium")
+    summary = result.get("summary", "Review complete")
+    findings = result.get("findings", [])
+    total = result.get("total_findings", len(findings))
+    by_severity = result.get("by_severity", {})
+    review_time = result.get("review_time", 0)
+    context_used = result.get("architecture_context_used", False)
+    known_vulns = result.get("known_vulns_checked", 0)
+    
+    # Verdict styling
+    verdict_styles = {
+        "approve": ("green", "✓ APPROVE"),
+        "request_changes": ("red", "✗ REQUEST CHANGES"),
+        "comment": ("yellow", "💬 COMMENT"),
+    }
+    verdict_color, verdict_text = verdict_styles.get(verdict, ("white", verdict.upper()))
+    
+    risk_styles = {
+        "low": ("green", "Low"),
+        "medium": ("yellow", "Medium"),
+        "high": ("red", "High"),
+        "critical": ("bold red", "Critical"),
+    }
+    risk_color, risk_text = risk_styles.get(risk_level, ("white", risk_level))
+    
+    # Header panel
+    header_text = Text()
+    header_text.append(f"Verdict: ", style="bold")
+    header_text.append(verdict_text, style=f"bold {verdict_color}")
+    header_text.append(f"  |  Risk: ", style="bold")
+    header_text.append(risk_text, style=risk_color)
+    header_text.append(f"  |  Findings: {total}")
+    
+    if context_used:
+        header_text.append("\n")
+        header_text.append("📚 Using architecture context from previous scan", style="dim")
+        if known_vulns > 0:
+            header_text.append(f" ({known_vulns} known vulns checked)", style="dim")
+    
+    console.print(Panel(header_text, title=f"[bold]PR Review[/bold]", border_style=verdict_color))
+    console.print()
+    
+    # Summary
+    if summary:
+        console.print(Panel(summary, title="Summary", border_style="blue"))
+        console.print()
+    
+    # Severity breakdown
+    if by_severity:
+        severity_text = Text()
+        sev_icons = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🟢"}
+        for sev in ["critical", "high", "medium", "low"]:
+            count = by_severity.get(sev, 0)
+            if count > 0:
+                severity_text.append(f"{sev_icons.get(sev, '⚪')} {sev.capitalize()}: {count}  ")
+        if severity_text:
+            console.print(severity_text)
+            console.print()
+    
+    if not findings:
+        if total == 0:
+            console.print("[green]✓ No issues found in this PR![/green]")
+        else:
+            console.print(f"[dim]{total} findings (details not loaded)[/dim]")
+        console.print()
+        console.print(f"[dim]Review completed in {review_time:.1f}s[/dim]")
+        return
+    
+    # Sort findings by severity
+    severity_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+    sorted_findings = sorted(findings, key=lambda f: severity_order.get(f.get("severity", "medium").lower(), 2))
+    
+    # Display each finding
+    for i, finding in enumerate(sorted_findings, 1):
+        severity = finding.get("severity", "medium").lower()
+        title = finding.get("title", "Finding")
+        file_path = finding.get("file_path", "Unknown")
+        line_start = finding.get("line_start", "?")
+        line_end = finding.get("line_end")
+        finding_type = finding.get("type", "issue")
+        description = finding.get("description", "")
+        code_snippet = finding.get("code_snippet", "")
+        suggestion = finding.get("suggestion", "")
+        cwe_id = finding.get("cwe_id", "")
+        confidence = finding.get("confidence", "medium")
+        
+        sev_colors = {"critical": "red", "high": "yellow", "medium": "blue", "low": "dim"}
+        sev_color = sev_colors.get(severity, "white")
+        
+        content_parts = []
+        
+        # Location
+        location = f"{file_path}:{line_start}"
+        if line_end and line_end != line_start:
+            location += f"-{line_end}"
+        content_parts.append(f"[bold]Location:[/bold] {location}")
+        content_parts.append(f"[bold]Type:[/bold] {finding_type}  |  [bold]Confidence:[/bold] {confidence}")
+        if cwe_id:
+            content_parts.append(f"[bold]CWE:[/bold] {cwe_id}")
+        content_parts.append("")
+        
+        if description:
+            content_parts.append("[bold]Description:[/bold]")
+            content_parts.append(description[:500])
+            content_parts.append("")
+        
+        if code_snippet:
+            content_parts.append("[bold]Code:[/bold]")
+            snippet = code_snippet[:300] + "..." if len(code_snippet) > 300 else code_snippet
+            content_parts.append(f"[dim]{snippet}[/dim]")
+            content_parts.append("")
+        
+        if suggestion:
+            content_parts.append("[bold green]Suggestion:[/bold green]")
+            content_parts.append(suggestion[:400])
+        
+        panel_title = f"[{sev_color}][{severity.upper()}][/{sev_color}] {i}. {title}"
+        console.print(Panel("\n".join(content_parts), title=panel_title, border_style=sev_color))
+        console.print()
+    
+    console.print(f"[dim]Review completed in {review_time:.1f}s[/dim]")
+
+
+def _print_pr_review_markdown(result: dict) -> None:
+    """Print PR review results in markdown format."""
+    verdict = result.get("verdict", "comment")
+    risk_level = result.get("risk_level", "medium")
+    summary = result.get("summary", "Review complete")
+    findings = result.get("findings", [])
+    total = result.get("total_findings", len(findings))
+    by_severity = result.get("by_severity", {})
+    context_used = result.get("architecture_context_used", False)
+    pr_number = result.get("pr_number", "?")
+    repo = result.get("repo", "")
+    
+    verdict_emoji = {"approve": "✅", "request_changes": "❌", "comment": "💬"}.get(verdict, "📝")
+    risk_emoji = {"low": "🟢", "medium": "🟡", "high": "🟠", "critical": "🔴"}.get(risk_level, "⚪")
+    
+    print(f"# PR Review: {repo}#{pr_number}\n")
+    print(f"**Verdict:** {verdict_emoji} {verdict.upper()}\n")
+    print(f"**Risk Level:** {risk_emoji} {risk_level.capitalize()}\n")
+    
+    if context_used:
+        print("*📚 Using architecture context from previous Slopless scan*\n")
+    
+    print("## Summary\n")
+    print(f"{summary}\n")
+    
+    if by_severity:
+        print("## Findings by Severity\n")
+        print("| Severity | Count |")
+        print("|----------|-------|")
+        sev_icons = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🟢"}
+        for sev in ["critical", "high", "medium", "low"]:
+            count = by_severity.get(sev, 0)
+            print(f"| {sev_icons.get(sev, '⚪')} {sev.capitalize()} | {count} |")
+        print(f"| **Total** | **{total}** |")
+        print()
+    
+    if not findings:
+        if total == 0:
+            print("✅ **No issues found in this PR!**\n")
+        return
+    
+    print("## Detailed Findings\n")
+    
+    severity_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+    sorted_findings = sorted(findings, key=lambda f: severity_order.get(f.get("severity", "medium").lower(), 2))
+    
+    for i, finding in enumerate(sorted_findings, 1):
+        severity = finding.get("severity", "medium").upper()
+        title = finding.get("title", "Finding")
+        file_path = finding.get("file_path", "Unknown")
+        line_start = finding.get("line_start", "?")
+        description = finding.get("description", "")
+        suggestion = finding.get("suggestion", "")
+        cwe_id = finding.get("cwe_id", "")
+        
+        sev_icons = {"CRITICAL": "🔴", "HIGH": "🟠", "MEDIUM": "🟡", "LOW": "🟢"}
+        sev_icon = sev_icons.get(severity, "⚪")
+        
+        print(f"### {i}. {sev_icon} [{severity}] {title}\n")
+        print(f"**Location:** `{file_path}:{line_start}`")
+        if cwe_id:
+            print(f"**CWE:** {cwe_id}")
+        print()
+        
+        if description:
+            print(f"**Description:**\n{description}\n")
+        
+        if suggestion:
+            print(f"**Suggestion:**\n{suggestion}\n")
+        
+        print("---\n")
+    
+    print("*Reviewed by [Slopless](https://slopless.work)*\n")
+
+
+# =============================================================================
 # Feature Implementation Commands
 # =============================================================================
 

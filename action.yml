@@ -10,10 +10,18 @@ inputs:
   license-key:
     description: 'Your Slopless license key. Get one at https://slopless.work'
     required: true
+  mode:
+    description: 'Mode: auto (default), scan, or review-pr. Auto uses review-pr for PRs, scan for pushes.'
+    required: false
+    default: 'auto'
   path:
-    description: 'Path to scan (default: current directory)'
+    description: 'Path to scan (default: current directory, only used in scan mode)'
     required: false
     default: '.'
+  github-token:
+    description: 'GitHub token for PR review (defaults to GITHUB_TOKEN)'
+    required: false
+    default: ${{ github.token }}
   fail-on-critical:
     description: 'Fail the workflow if critical vulnerabilities are found'
     required: false
@@ -49,26 +57,32 @@ inputs:
 
 outputs:
   total-vulnerabilities:
-    description: 'Total number of vulnerabilities found'
-    value: ${{ steps.scan.outputs.total }}
+    description: 'Total number of vulnerabilities/findings found'
+    value: ${{ steps.analyze.outputs.total }}
   critical-count:
     description: 'Number of critical vulnerabilities'
-    value: ${{ steps.scan.outputs.critical }}
+    value: ${{ steps.analyze.outputs.critical }}
   high-count:
     description: 'Number of high severity vulnerabilities'
-    value: ${{ steps.scan.outputs.high }}
+    value: ${{ steps.analyze.outputs.high }}
   medium-count:
     description: 'Number of medium severity vulnerabilities'
-    value: ${{ steps.scan.outputs.medium }}
+    value: ${{ steps.analyze.outputs.medium }}
   low-count:
     description: 'Number of low severity vulnerabilities'
-    value: ${{ steps.scan.outputs.low }}
+    value: ${{ steps.analyze.outputs.low }}
   report-path:
     description: 'Path to the generated report file'
-    value: ${{ steps.scan.outputs.report_path }}
+    value: ${{ steps.analyze.outputs.report_path }}
   scan-passed:
     description: 'Whether the scan passed the configured thresholds'
     value: ${{ steps.check.outputs.passed }}
+  verdict:
+    description: 'PR review verdict (approve/request_changes/comment) - only for review-pr mode'
+    value: ${{ steps.analyze.outputs.verdict }}
+  mode-used:
+    description: 'The mode that was used (scan or review-pr)'
+    value: ${{ steps.analyze.outputs.mode }}
 
 runs:
   using: 'composite'
@@ -85,61 +99,135 @@ runs:
         pip install slopless
         slopless --version
 
-    - name: Run Security Scan
-      id: scan
+    - name: Run Security Analysis
+      id: analyze
       shell: bash
       env:
         SLOPLESS_LICENSE_KEY: ${{ inputs.license-key }}
+        GITHUB_TOKEN: ${{ inputs.github-token }}
       run: |
         set +e  # Don't exit on error, we handle it ourselves
         
-        # Build the scan command
-        SCAN_CMD="slopless scan ${{ inputs.path }}"
-        SCAN_CMD="$SCAN_CMD --format json"
-        SCAN_CMD="$SCAN_CMD --output ${{ inputs.output-file }}"
-        
-        # Add options based on inputs
-        if [ "${{ inputs.auto-fix }}" = "true" ]; then
-          SCAN_CMD="$SCAN_CMD --auto-fix"
-        else
-          SCAN_CMD="$SCAN_CMD --no-fix"
+        # Determine mode
+        MODE="${{ inputs.mode }}"
+        if [ "$MODE" = "auto" ]; then
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            MODE="review-pr"
+          else
+            MODE="scan"
+          fi
         fi
         
-        if [ "${{ inputs.cross-validate }}" = "true" ]; then
-          SCAN_CMD="$SCAN_CMD --cross-validate"
+        echo "mode=$MODE" >> $GITHUB_OUTPUT
+        
+        if [ "$MODE" = "review-pr" ]; then
+          # PR Review mode - analyze just the PR diff
+          PR_URL="https://github.com/${{ github.repository }}/pull/${{ github.event.pull_request.number }}"
+          
+          echo "🔍 Reviewing PR: $PR_URL"
+          
+          REVIEW_CMD="slopless review-pr '$PR_URL'"
+          REVIEW_CMD="$REVIEW_CMD --format json"
+          REVIEW_CMD="$REVIEW_CMD --output ${{ inputs.output-file }}"
+          REVIEW_CMD="$REVIEW_CMD --github-token '$GITHUB_TOKEN'"
+          
+          echo "Running: slopless review-pr $PR_URL --format json"
+          eval $REVIEW_CMD
+          ANALYSIS_EXIT_CODE=$?
+          
+          # Parse PR review results
+          if [ -f "${{ inputs.output-file }}" ]; then
+            TOTAL=$(jq '.total_findings // 0' "${{ inputs.output-file }}" 2>/dev/null || echo "0")
+            CRITICAL=$(jq '.by_severity.critical // 0' "${{ inputs.output-file }}" 2>/dev/null || echo "0")
+            HIGH=$(jq '.by_severity.high // 0' "${{ inputs.output-file }}" 2>/dev/null || echo "0")
+            MEDIUM=$(jq '.by_severity.medium // 0' "${{ inputs.output-file }}" 2>/dev/null || echo "0")
+            LOW=$(jq '.by_severity.low // 0' "${{ inputs.output-file }}" 2>/dev/null || echo "0")
+            VERDICT=$(jq -r '.verdict // "comment"' "${{ inputs.output-file }}" 2>/dev/null || echo "comment")
+            CONTEXT_USED=$(jq -r '.architecture_context_used // false' "${{ inputs.output-file }}" 2>/dev/null || echo "false")
+          else
+            TOTAL=0
+            CRITICAL=0
+            HIGH=0
+            MEDIUM=0
+            LOW=0
+            VERDICT="comment"
+            CONTEXT_USED="false"
+          fi
+          
+          echo "verdict=$VERDICT" >> $GITHUB_OUTPUT
+          
+          # Write summary for PR review
+          echo "## 🔍 Slopless PR Review" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          VERDICT_EMOJI="💬"
+          if [ "$VERDICT" = "approve" ]; then
+            VERDICT_EMOJI="✅"
+          elif [ "$VERDICT" = "request_changes" ]; then
+            VERDICT_EMOJI="❌"
+          fi
+          
+          echo "**Verdict:** $VERDICT_EMOJI ${VERDICT^^}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "$CONTEXT_USED" = "true" ]; then
+            echo "📚 *Using architecture context from previous scan*" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+          
         else
-          SCAN_CMD="$SCAN_CMD --no-validate"
+          # Full scan mode
+          SCAN_CMD="slopless scan ${{ inputs.path }}"
+          SCAN_CMD="$SCAN_CMD --format json"
+          SCAN_CMD="$SCAN_CMD --output ${{ inputs.output-file }}"
+          
+          if [ "${{ inputs.auto-fix }}" = "true" ]; then
+            SCAN_CMD="$SCAN_CMD --auto-fix"
+          else
+            SCAN_CMD="$SCAN_CMD --no-fix"
+          fi
+          
+          if [ "${{ inputs.cross-validate }}" = "true" ]; then
+            SCAN_CMD="$SCAN_CMD --cross-validate"
+          else
+            SCAN_CMD="$SCAN_CMD --no-validate"
+          fi
+          
+          echo "Running: $SCAN_CMD"
+          eval $SCAN_CMD
+          ANALYSIS_EXIT_CODE=$?
+          
+          # Parse scan results
+          if [ -f "${{ inputs.output-file }}" ]; then
+            TOTAL=$(jq '.vulnerabilities | length' "${{ inputs.output-file }}" 2>/dev/null || echo "0")
+            CRITICAL=$(jq '[.vulnerabilities[] | select(.severity == "critical")] | length' "${{ inputs.output-file }}" 2>/dev/null || echo "0")
+            HIGH=$(jq '[.vulnerabilities[] | select(.severity == "high")] | length' "${{ inputs.output-file }}" 2>/dev/null || echo "0")
+            MEDIUM=$(jq '[.vulnerabilities[] | select(.severity == "medium")] | length' "${{ inputs.output-file }}" 2>/dev/null || echo "0")
+            LOW=$(jq '[.vulnerabilities[] | select(.severity == "low")] | length' "${{ inputs.output-file }}" 2>/dev/null || echo "0")
+          else
+            TOTAL=0
+            CRITICAL=0
+            HIGH=0
+            MEDIUM=0
+            LOW=0
+          fi
+          
+          echo "verdict=" >> $GITHUB_OUTPUT
+          
+          echo "## 🛡️ Slopless Security Scan Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
         fi
         
-        echo "Running: $SCAN_CMD"
-        eval $SCAN_CMD
-        SCAN_EXIT_CODE=$?
-        
-        # Parse results from JSON output
-        if [ -f "${{ inputs.output-file }}" ]; then
-          TOTAL=$(jq '.vulnerabilities | length' "${{ inputs.output-file }}" 2>/dev/null || echo "0")
-          CRITICAL=$(jq '[.vulnerabilities[] | select(.severity == "critical")] | length' "${{ inputs.output-file }}" 2>/dev/null || echo "0")
-          HIGH=$(jq '[.vulnerabilities[] | select(.severity == "high")] | length' "${{ inputs.output-file }}" 2>/dev/null || echo "0")
-          MEDIUM=$(jq '[.vulnerabilities[] | select(.severity == "medium")] | length' "${{ inputs.output-file }}" 2>/dev/null || echo "0")
-          LOW=$(jq '[.vulnerabilities[] | select(.severity == "low")] | length' "${{ inputs.output-file }}" 2>/dev/null || echo "0")
-        else
-          TOTAL=0
-          CRITICAL=0
-          HIGH=0
-          MEDIUM=0
-          LOW=0
-        fi
-        
+        # Common outputs
         echo "total=$TOTAL" >> $GITHUB_OUTPUT
         echo "critical=$CRITICAL" >> $GITHUB_OUTPUT
         echo "high=$HIGH" >> $GITHUB_OUTPUT
         echo "medium=$MEDIUM" >> $GITHUB_OUTPUT
         echo "low=$LOW" >> $GITHUB_OUTPUT
         echo "report_path=${{ inputs.output-file }}" >> $GITHUB_OUTPUT
-        echo "exit_code=$SCAN_EXIT_CODE" >> $GITHUB_OUTPUT
+        echo "exit_code=$ANALYSIS_EXIT_CODE" >> $GITHUB_OUTPUT
         
-        echo "## 🛡️ Slopless Security Scan Results" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
+        # Summary table
         echo "| Severity | Count |" >> $GITHUB_STEP_SUMMARY
         echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
         echo "| 🔴 Critical | $CRITICAL |" >> $GITHUB_STEP_SUMMARY
@@ -150,7 +238,7 @@ runs:
         
         if [ "$TOTAL" -eq 0 ]; then
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "✅ **No vulnerabilities found!**" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **No issues found!**" >> $GITHUB_STEP_SUMMARY
         fi
 
     - name: Check Thresholds
@@ -158,8 +246,8 @@ runs:
       shell: bash
       run: |
         PASSED="true"
-        CRITICAL=${{ steps.scan.outputs.critical }}
-        HIGH=${{ steps.scan.outputs.high }}
+        CRITICAL=${{ steps.analyze.outputs.critical }}
+        HIGH=${{ steps.analyze.outputs.high }}
         
         if [ "${{ inputs.fail-on-critical }}" = "true" ] && [ "$CRITICAL" -gt 0 ]; then
           echo "::error::Found $CRITICAL critical vulnerabilities"
@@ -194,13 +282,26 @@ runs:
         script: |
           const fs = require('fs');
           
-          let body = '## 🛡️ Slopless Security Scan\n\n';
+          const total = '${{ steps.analyze.outputs.total }}';
+          const critical = '${{ steps.analyze.outputs.critical }}';
+          const high = '${{ steps.analyze.outputs.high }}';
+          const medium = '${{ steps.analyze.outputs.medium }}';
+          const low = '${{ steps.analyze.outputs.low }}';
+          const verdict = '${{ steps.analyze.outputs.verdict }}';
+          const mode = '${{ steps.analyze.outputs.mode }}';
           
-          const total = '${{ steps.scan.outputs.total }}';
-          const critical = '${{ steps.scan.outputs.critical }}';
-          const high = '${{ steps.scan.outputs.high }}';
-          const medium = '${{ steps.scan.outputs.medium }}';
-          const low = '${{ steps.scan.outputs.low }}';
+          let body = '';
+          
+          // Different header based on mode
+          if (mode === 'review-pr') {
+            body = '## 🔍 Slopless PR Review\n\n';
+            
+            // Show verdict for PR reviews
+            const verdictEmoji = verdict === 'approve' ? '✅' : (verdict === 'request_changes' ? '❌' : '💬');
+            body += `**Verdict:** ${verdictEmoji} ${verdict.toUpperCase()}\n\n`;
+          } else {
+            body = '## 🛡️ Slopless Security Scan\n\n';
+          }
           
           body += '| Severity | Count |\n';
           body += '|----------|-------|\n';
@@ -211,7 +312,7 @@ runs:
           body += `| **Total** | **${total}** |\n\n`;
           
           if (parseInt(total) === 0) {
-            body += '✅ **No vulnerabilities found!**\n';
+            body += '✅ **No issues found!**\n';
           } else {
             body += '<details>\n<summary>📋 View detailed report</summary>\n\n';
             
@@ -230,9 +331,10 @@ runs:
             body += '\n</details>\n';
           }
           
-          body += '\n---\n_Powered by [Slopless](https://slopless.work) - AI Security Scanner_';
+          const tagline = mode === 'review-pr' ? 'AI PR Reviewer' : 'AI Security Scanner';
+          body += `\n---\n_Powered by [Slopless](https://slopless.work) - ${tagline}_`;
           
-          // Find existing comment
+          // Find existing comment (match both scan and review headers)
           const { data: comments } = await github.rest.issues.listComments({
             owner: context.repo.owner,
             repo: context.repo.repo,
@@ -241,7 +343,7 @@ runs:
           
           const botComment = comments.find(comment => 
             comment.user.type === 'Bot' && 
-            comment.body.includes('🛡️ Slopless Security Scan')
+            (comment.body.includes('🛡️ Slopless Security Scan') || comment.body.includes('🔍 Slopless PR Review'))
           );
           
           if (botComment) {
