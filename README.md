@@ -200,26 +200,215 @@ slopless scan . --format json | jq '.vulnerabilities | length'
 
 ## CI/CD Integration
 
-### GitHub Actions
+Slopless works seamlessly in CI/CD pipelines. Add security scanning to every PR and push.
+
+### Quick Start (GitHub Actions)
+
+Add your `SLOPLESS_LICENSE_KEY` to repository secrets, then create `.github/workflows/slopless.yml`:
 
 ```yaml
-- name: Security Scan
-  env:
-    SLOPLESS_LICENSE_KEY: ${{ secrets.SLOPLESS_LICENSE_KEY }}
-  run: |
-    pipx install slopless
-    slopless scan . --format json --output security-report.json
+name: Security Scan
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Slopless
+        run: pip install slopless
+
+      - name: Security Scan
+        env:
+          SLOPLESS_LICENSE_KEY: ${{ secrets.SLOPLESS_LICENSE_KEY }}
+        run: |
+          slopless scan . --format json --output report.json
+
+          # Fail on critical vulnerabilities
+          CRITICAL=$(jq '[.vulnerabilities[] | select(.severity == "critical")] | length' report.json)
+          if [ "$CRITICAL" -gt 0 ]; then
+            echo "::error::Found $CRITICAL critical vulnerabilities!"
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: security-report
+          path: report.json
 ```
+
+### Using the Slopless Action (Recommended)
+
+For a more feature-rich experience with PR comments and job summaries:
+
+```yaml
+name: Security Scan
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: xors-software/slopless-action@v1
+        with:
+          license-key: ${{ secrets.SLOPLESS_LICENSE_KEY }}
+          fail-on-critical: 'true'
+          fail-on-high: 'false'
+          comment-on-pr: 'true'
+```
+
+**Action Inputs:**
+
+| Input | Description | Default |
+|-------|-------------|---------|
+| `license-key` | Your Slopless license key (required) | - |
+| `path` | Path to scan | `.` |
+| `fail-on-critical` | Fail if critical vulns found | `true` |
+| `fail-on-high` | Fail if high vulns found | `false` |
+| `auto-fix` | Generate fix suggestions | `true` |
+| `cross-validate` | Cross-validate findings | `true` |
+| `comment-on-pr` | Post results as PR comment | `true` |
+| `output-format` | Output format (rich/json/markdown) | `markdown` |
+
+**Action Outputs:**
+
+| Output | Description |
+|--------|-------------|
+| `total-vulnerabilities` | Total count |
+| `critical-count` | Critical vulnerabilities |
+| `high-count` | High severity vulnerabilities |
+| `medium-count` | Medium severity vulnerabilities |
+| `low-count` | Low severity vulnerabilities |
+| `scan-passed` | Whether thresholds passed |
 
 ### GitLab CI
 
 ```yaml
 security_scan:
+  image: python:3.12
+  stage: test
   script:
-    - pipx install slopless
+    - pip install slopless
     - slopless scan . --format json --output security-report.json
+    - |
+      CRITICAL=$(jq '[.vulnerabilities[] | select(.severity == "critical")] | length' security-report.json)
+      if [ "$CRITICAL" -gt 0 ]; then
+        echo "Found $CRITICAL critical vulnerabilities!"
+        exit 1
+      fi
   variables:
     SLOPLESS_LICENSE_KEY: $SLOPLESS_LICENSE_KEY
+  artifacts:
+    paths:
+      - security-report.json
+    expire_in: 1 week
+```
+
+### CircleCI
+
+```yaml
+version: 2.1
+
+jobs:
+  security-scan:
+    docker:
+      - image: cimg/python:3.12
+    steps:
+      - checkout
+      - run:
+          name: Install Slopless
+          command: pip install slopless
+      - run:
+          name: Run Security Scan
+          command: slopless scan . --format json --output report.json
+      - store_artifacts:
+          path: report.json
+
+workflows:
+  security:
+    jobs:
+      - security-scan
+```
+
+### Bitbucket Pipelines
+
+```yaml
+pipelines:
+  pull-requests:
+    '**':
+      - step:
+          name: Security Scan
+          image: python:3.12
+          script:
+            - pip install slopless
+            - slopless scan . --format json --output report.json
+          artifacts:
+            - report.json
+```
+
+### Azure DevOps
+
+```yaml
+trigger:
+  - main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+steps:
+  - task: UsePythonVersion@0
+    inputs:
+      versionSpec: '3.12'
+
+  - script: |
+      pip install slopless
+      slopless scan . --format json --output $(Build.ArtifactStagingDirectory)/report.json
+    displayName: 'Security Scan'
+    env:
+      SLOPLESS_LICENSE_KEY: $(SLOPLESS_LICENSE_KEY)
+
+  - publish: $(Build.ArtifactStagingDirectory)/report.json
+    artifact: SecurityReport
+```
+
+### Docker
+
+```dockerfile
+FROM python:3.12-slim
+
+RUN pip install slopless
+
+WORKDIR /app
+COPY . .
+
+RUN slopless scan . --format json --output /report.json
+
+# Use as build step, fail on criticals
+RUN [ $(jq '[.vulnerabilities[] | select(.severity == "critical")] | length' /report.json) -eq 0 ]
 ```
 
 ## Requirements

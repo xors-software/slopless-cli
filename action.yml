@@ -1,0 +1,271 @@
+name: 'Slopless Security Scan'
+description: 'AI-powered security scanner for vibe-coded apps. Find vulnerabilities before they find you.'
+author: 'XORS Software'
+
+branding:
+  icon: 'shield'
+  color: 'purple'
+
+inputs:
+  license-key:
+    description: 'Your Slopless license key. Get one at https://slopless.work'
+    required: true
+  path:
+    description: 'Path to scan (default: current directory)'
+    required: false
+    default: '.'
+  fail-on-critical:
+    description: 'Fail the workflow if critical vulnerabilities are found'
+    required: false
+    default: 'true'
+  fail-on-high:
+    description: 'Fail the workflow if high severity vulnerabilities are found'
+    required: false
+    default: 'false'
+  auto-fix:
+    description: 'Generate fix suggestions for vulnerabilities'
+    required: false
+    default: 'true'
+  cross-validate:
+    description: 'Cross-validate HIGH/CRITICAL findings to reduce false positives'
+    required: false
+    default: 'true'
+  output-format:
+    description: 'Output format: rich, json, or markdown'
+    required: false
+    default: 'markdown'
+  output-file:
+    description: 'Save report to this file path'
+    required: false
+    default: 'slopless-report.json'
+  python-version:
+    description: 'Python version to use'
+    required: false
+    default: '3.12'
+  comment-on-pr:
+    description: 'Post scan results as a PR comment (requires pull_request trigger)'
+    required: false
+    default: 'true'
+
+outputs:
+  total-vulnerabilities:
+    description: 'Total number of vulnerabilities found'
+    value: ${{ steps.scan.outputs.total }}
+  critical-count:
+    description: 'Number of critical vulnerabilities'
+    value: ${{ steps.scan.outputs.critical }}
+  high-count:
+    description: 'Number of high severity vulnerabilities'
+    value: ${{ steps.scan.outputs.high }}
+  medium-count:
+    description: 'Number of medium severity vulnerabilities'
+    value: ${{ steps.scan.outputs.medium }}
+  low-count:
+    description: 'Number of low severity vulnerabilities'
+    value: ${{ steps.scan.outputs.low }}
+  report-path:
+    description: 'Path to the generated report file'
+    value: ${{ steps.scan.outputs.report_path }}
+  scan-passed:
+    description: 'Whether the scan passed the configured thresholds'
+    value: ${{ steps.check.outputs.passed }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install Slopless CLI
+      shell: bash
+      run: |
+        pip install --upgrade pip
+        pip install slopless
+        slopless --version
+
+    - name: Run Security Scan
+      id: scan
+      shell: bash
+      env:
+        SLOPLESS_LICENSE_KEY: ${{ inputs.license-key }}
+      run: |
+        set +e  # Don't exit on error, we handle it ourselves
+        
+        # Build the scan command
+        SCAN_CMD="slopless scan ${{ inputs.path }}"
+        SCAN_CMD="$SCAN_CMD --format json"
+        SCAN_CMD="$SCAN_CMD --output ${{ inputs.output-file }}"
+        
+        # Add options based on inputs
+        if [ "${{ inputs.auto-fix }}" = "true" ]; then
+          SCAN_CMD="$SCAN_CMD --auto-fix"
+        else
+          SCAN_CMD="$SCAN_CMD --no-fix"
+        fi
+        
+        if [ "${{ inputs.cross-validate }}" = "true" ]; then
+          SCAN_CMD="$SCAN_CMD --cross-validate"
+        else
+          SCAN_CMD="$SCAN_CMD --no-validate"
+        fi
+        
+        echo "Running: $SCAN_CMD"
+        eval $SCAN_CMD
+        SCAN_EXIT_CODE=$?
+        
+        # Parse results from JSON output
+        if [ -f "${{ inputs.output-file }}" ]; then
+          TOTAL=$(jq '.vulnerabilities | length' "${{ inputs.output-file }}" 2>/dev/null || echo "0")
+          CRITICAL=$(jq '[.vulnerabilities[] | select(.severity == "critical")] | length' "${{ inputs.output-file }}" 2>/dev/null || echo "0")
+          HIGH=$(jq '[.vulnerabilities[] | select(.severity == "high")] | length' "${{ inputs.output-file }}" 2>/dev/null || echo "0")
+          MEDIUM=$(jq '[.vulnerabilities[] | select(.severity == "medium")] | length' "${{ inputs.output-file }}" 2>/dev/null || echo "0")
+          LOW=$(jq '[.vulnerabilities[] | select(.severity == "low")] | length' "${{ inputs.output-file }}" 2>/dev/null || echo "0")
+        else
+          TOTAL=0
+          CRITICAL=0
+          HIGH=0
+          MEDIUM=0
+          LOW=0
+        fi
+        
+        echo "total=$TOTAL" >> $GITHUB_OUTPUT
+        echo "critical=$CRITICAL" >> $GITHUB_OUTPUT
+        echo "high=$HIGH" >> $GITHUB_OUTPUT
+        echo "medium=$MEDIUM" >> $GITHUB_OUTPUT
+        echo "low=$LOW" >> $GITHUB_OUTPUT
+        echo "report_path=${{ inputs.output-file }}" >> $GITHUB_OUTPUT
+        echo "exit_code=$SCAN_EXIT_CODE" >> $GITHUB_OUTPUT
+        
+        echo "## 🛡️ Slopless Security Scan Results" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "| Severity | Count |" >> $GITHUB_STEP_SUMMARY
+        echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+        echo "| 🔴 Critical | $CRITICAL |" >> $GITHUB_STEP_SUMMARY
+        echo "| 🟠 High | $HIGH |" >> $GITHUB_STEP_SUMMARY
+        echo "| 🟡 Medium | $MEDIUM |" >> $GITHUB_STEP_SUMMARY
+        echo "| 🟢 Low | $LOW |" >> $GITHUB_STEP_SUMMARY
+        echo "| **Total** | **$TOTAL** |" >> $GITHUB_STEP_SUMMARY
+        
+        if [ "$TOTAL" -eq 0 ]; then
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **No vulnerabilities found!**" >> $GITHUB_STEP_SUMMARY
+        fi
+
+    - name: Check Thresholds
+      id: check
+      shell: bash
+      run: |
+        PASSED="true"
+        CRITICAL=${{ steps.scan.outputs.critical }}
+        HIGH=${{ steps.scan.outputs.high }}
+        
+        if [ "${{ inputs.fail-on-critical }}" = "true" ] && [ "$CRITICAL" -gt 0 ]; then
+          echo "::error::Found $CRITICAL critical vulnerabilities"
+          PASSED="false"
+        fi
+        
+        if [ "${{ inputs.fail-on-high }}" = "true" ] && [ "$HIGH" -gt 0 ]; then
+          echo "::error::Found $HIGH high severity vulnerabilities"
+          PASSED="false"
+        fi
+        
+        echo "passed=$PASSED" >> $GITHUB_OUTPUT
+        
+        if [ "$PASSED" = "false" ]; then
+          exit 1
+        fi
+
+    - name: Generate Markdown Report
+      if: inputs.output-format == 'markdown' || inputs.comment-on-pr == 'true'
+      shell: bash
+      env:
+        SLOPLESS_LICENSE_KEY: ${{ inputs.license-key }}
+      run: |
+        if [ -f "${{ inputs.output-file }}" ]; then
+          slopless scan ${{ inputs.path }} --format markdown --no-fix --no-validate > slopless-report.md 2>/dev/null || true
+        fi
+
+    - name: Comment on PR
+      if: github.event_name == 'pull_request' && inputs.comment-on-pr == 'true'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          
+          let body = '## 🛡️ Slopless Security Scan\n\n';
+          
+          const total = '${{ steps.scan.outputs.total }}';
+          const critical = '${{ steps.scan.outputs.critical }}';
+          const high = '${{ steps.scan.outputs.high }}';
+          const medium = '${{ steps.scan.outputs.medium }}';
+          const low = '${{ steps.scan.outputs.low }}';
+          
+          body += '| Severity | Count |\n';
+          body += '|----------|-------|\n';
+          body += `| 🔴 Critical | ${critical} |\n`;
+          body += `| 🟠 High | ${high} |\n`;
+          body += `| 🟡 Medium | ${medium} |\n`;
+          body += `| 🟢 Low | ${low} |\n`;
+          body += `| **Total** | **${total}** |\n\n`;
+          
+          if (parseInt(total) === 0) {
+            body += '✅ **No vulnerabilities found!**\n';
+          } else {
+            body += '<details>\n<summary>📋 View detailed report</summary>\n\n';
+            
+            try {
+              if (fs.existsSync('slopless-report.md')) {
+                const report = fs.readFileSync('slopless-report.md', 'utf8');
+                body += report;
+              } else if (fs.existsSync('${{ inputs.output-file }}')) {
+                const jsonReport = JSON.parse(fs.readFileSync('${{ inputs.output-file }}', 'utf8'));
+                body += '```json\n' + JSON.stringify(jsonReport, null, 2) + '\n```\n';
+              }
+            } catch (e) {
+              body += '_Report details not available_\n';
+            }
+            
+            body += '\n</details>\n';
+          }
+          
+          body += '\n---\n_Powered by [Slopless](https://slopless.work) - AI Security Scanner_';
+          
+          // Find existing comment
+          const { data: comments } = await github.rest.issues.listComments({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number,
+          });
+          
+          const botComment = comments.find(comment => 
+            comment.user.type === 'Bot' && 
+            comment.body.includes('🛡️ Slopless Security Scan')
+          );
+          
+          if (botComment) {
+            await github.rest.issues.updateComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: botComment.id,
+              body: body
+            });
+          } else {
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: body
+            });
+          }
+
+    - name: Upload Report Artifact
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: slopless-security-report
+        path: |
+          ${{ inputs.output-file }}
+          slopless-report.md
+        if-no-files-found: ignore
