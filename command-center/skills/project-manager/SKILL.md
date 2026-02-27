@@ -15,11 +15,41 @@ Follow the three-phase interactive flow below. Each phase requires user consent 
 
 ---
 
-### Phase 1: Lightweight Discovery (always safe)
+### Phase 1: Lightweight Discovery
 
-This phase only reads directory names and basic git metadata. No file contents, no API calls, no history.
+Detect the environment and discover projects accordingly.
 
-1. Scan the workspace root for directories:
+1. **Check environment** — determine if running on Railway (deployed) or locally:
+   ```bash
+   if [ -n "${RAILWAY_ENVIRONMENT:-}" ]; then
+     MODE="deployed"
+   else
+     MODE="local"
+   fi
+   ```
+
+2. **If deployed (Railway)** — discover projects via GitHub API:
+   ```bash
+   gh repo list xors-software --json name,defaultBranchRef,primaryLanguage,url,pushedAt \
+     --limit 30 --no-archived 2>/dev/null
+   ```
+   Parse the JSON output and present:
+   ```
+   Projects Found (GitHub — xors-software)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    #  Repo                   Default Branch    Language      Last Push
+    1. slopless-engine        main              Python        2d ago
+    2. slopless-cli           main              Python        1d ago
+    3. slopless               main              TypeScript    3d ago
+    4. git-scout              main              TypeScript    1w ago
+    ...
+
+   Found N repositories.
+   ```
+   If the GitHub org differs, ask the user or recall from memory.
+
+3. **If local** — scan the workspace root for directories:
    ```bash
    for dir in ~/work/xors/*/; do
      name=$(basename "$dir")
@@ -34,7 +64,6 @@ This phase only reads directory names and basic git metadata. No file contents, 
        branch=$(git -C "$dir" branch --show-current 2>/dev/null || echo "detached")
      fi
 
-     # Detect tech stack from manifest files
      [ -f "$dir/pyproject.toml" ] && stack="python"
      [ -f "$dir/package.json" ] && stack="node"
      [ -f "$dir/Cargo.toml" ] && stack="rust"
@@ -44,10 +73,8 @@ This phase only reads directory names and basic git metadata. No file contents, 
      echo "$name | $has_git | $branch | $remote | $stack"
    done
    ```
-
-2. For multi-repo projects (directories containing sub-directories with `.git`), group them:
+   For multi-repo projects (directories containing sub-directories with `.git`), group them:
    ```bash
-   # Check one level deeper for sub-repos
    for subdir in "$dir"/*/; do
      if [ -d "$subdir/.git" ]; then
        sub_name=$(basename "$subdir")
@@ -58,25 +85,7 @@ This phase only reads directory names and basic git metadata. No file contents, 
    done
    ```
 
-3. Present the lightweight list to the user:
-   ```
-   Projects Found (~/work/xors/)
-   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-    #  Project                Branch                    Stack
-    1. slopless-project       —                         python
-       ├─ slopless-engine     main                      
-       ├─ slopless-cli        main                      
-       └─ slopless            main                      
-    2. git-scout              feature/global-nav...     node
-    3. apis                   main                      node
-    4. clients/               (3 client projects)
-    ...
-
-   Found N projects (M with git repos).
-   ```
-
-4. **Ask the user**:
+4. Present the list and **ask the user**:
    > "Want me to check GitHub for open PRs on these? I can check all, or just specific ones. Reply with 'all', project names/numbers, or 'skip'."
 
 ---
@@ -222,7 +231,7 @@ When user asks "load slopless" or "switch to slopless":
    Context: "EVMBench benchmark integration"
 
    Stack: Python 3.11+, FastAPI, Anthropic SDK, Next.js
-   Path:  ~/work/xors/slopless-project/
+   URL:   https://github.com/xors-software/slopless-*
 
    Actions:
      "scan slopless-engine"    — security scan
@@ -251,6 +260,6 @@ After any completed discovery flow, save to ZeroClaw memory:
 - Projects under `clients/` should be grouped by client name
 - Cursor transcripts may contain sensitive data — only extract the first user query topic, never store raw content
 - The project index enables all other skills to resolve short names (e.g., "slopless" -> repo paths)
-- For Railway deployment: git/GitHub data works, Cursor transcripts are local-only (skip Phase 3 gracefully)
+- For Railway deployment: Phase 1 uses GitHub API (no local filesystem), Phase 2 works as-is, Phase 3 is skipped (Cursor transcripts are local-only)
 - If a project has no `.git` directory, still list it as "non-git project"
 - Rate-limit `gh pr list` calls to avoid GitHub API throttling (max 5 sequential, not concurrent)

@@ -51,7 +51,7 @@ allowed_commands = [
     "head", "tail", "date", "mkdir", "cp", "mv", "gpg",
 ]
 forbidden_paths = ["/etc/shadow", "/proc", "/sys", "/boot", "/dev"]
-allowed_roots = ["/app", "/tmp"]
+allowed_roots = ["/app", "/tmp", "/root"]
 max_actions_per_hour = 200
 max_cost_per_day_cents = 5000
 

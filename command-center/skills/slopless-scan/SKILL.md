@@ -15,7 +15,7 @@ Scan a repository or directory for security vulnerabilities using the Slopless C
 2. **If GitHub URL**: Clone to a temporary workspace directory:
    ```
    TASK_ID=$(date +%s)
-   WORK_DIR="$HOME/work/xors/slopless-project/slopless-cli/command-center/workspace/$TASK_ID"
+   WORK_DIR="/tmp/workspace/$TASK_ID"
    mkdir -p "$WORK_DIR"
    git clone <url> "$WORK_DIR/repo"
    cd "$WORK_DIR/repo"
@@ -27,11 +27,8 @@ Scan a repository or directory for security vulnerabilities using the Slopless C
    ```
    slopless scan <path> --output /tmp/slopless-scan-$TASK_ID.json --format json
    ```
-   If `slopless` CLI is not authenticated, fall back to the engine directly:
-   ```
-   cd ~/work/xors/slopless-project/slopless-engine
-   python -m unslop.cli scan <path> --output /tmp/slopless-scan-$TASK_ID.json
-   ```
+   If the CLI reports an authentication error, inform the user that `SLOPLESS_LICENSE_KEY` must be
+   set as an environment variable and ask them to configure it.
 
 5. **Parse and format results**: Read the JSON output and create a structured summary:
    ```

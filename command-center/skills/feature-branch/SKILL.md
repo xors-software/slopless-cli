@@ -18,7 +18,7 @@ Clone a repo, create a feature branch, spawn a Claude Code session to implement 
 2. **Set up workspace**:
    ```
    TASK_ID=$(date +%s)-$(echo "$TASK_DESC" | tr ' ' '-' | tr '[:upper:]' '[:lower:]' | head -c 20)
-   WORK_DIR="$HOME/work/xors/slopless-project/slopless-cli/command-center/workspace/$TASK_ID"
+   WORK_DIR="/tmp/workspace/$TASK_ID"
    mkdir -p "$WORK_DIR"
    ```
 

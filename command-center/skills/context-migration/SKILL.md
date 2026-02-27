@@ -11,6 +11,18 @@ Import conversation context from Cursor IDE and Claude Code into ZeroClaw's memo
 
 ## Instructions
 
+### Step 0: Environment Check
+
+This skill reads local IDE data and only works on the user's machine, not on Railway.
+```bash
+if [ -n "${RAILWAY_ENVIRONMENT:-}" ]; then
+  echo "Context migration is a local-only operation. It reads Cursor IDE and Claude Code sessions from your machine."
+  echo "Run this from your local command center instead, or provide context manually."
+  exit 0
+fi
+```
+If running on Railway, inform the user and stop. Do not proceed with the steps below.
+
 ### Step 1: Discover Available Context Sources
 
 Check for Cursor IDE transcripts:

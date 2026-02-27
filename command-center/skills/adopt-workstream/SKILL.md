@@ -42,7 +42,7 @@ When user provides a PR URL or number:
 2. **Clone and checkout**:
    ```
    TASK_ID="adopted-$(date +%s)"
-   WORK_DIR="$HOME/work/xors/slopless-project/slopless-cli/command-center/workspace/$TASK_ID"
+   WORK_DIR="/tmp/workspace/$TASK_ID"
    git clone <repo-url> "$WORK_DIR/repo"
    cd "$WORK_DIR/repo"
    git checkout <head-branch>
