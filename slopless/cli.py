@@ -1024,6 +1024,345 @@ async def _run_feature(
 
 
 # =============================================================================
+# Command Center
+# =============================================================================
+
+
+COMMAND_CENTER_SKILLS_DIR = Path(__file__).parent.parent / "command-center" / "skills"
+
+
+def _run_shell(cmd: str, check: bool = True) -> subprocess.CompletedProcess:
+    """Run a shell command, returning the result."""
+    return subprocess.run(cmd, shell=True, capture_output=True, text=True, check=check)
+
+
+def _command_exists(cmd: str) -> bool:
+    """Check if a command is available on PATH."""
+    return subprocess.run(
+        f"command -v {cmd}", shell=True, capture_output=True
+    ).returncode == 0
+
+
+@cli.command("command-center")
+@click.option("--license-key", default=None, help="Slopless license key (uses stored credentials if omitted)")
+@click.option("--telegram-token", default=None, help="Telegram bot token (prompted if not provided)")
+@click.option("--anthropic-key", default=None, help="Bring your own Anthropic API key (bypasses slopless LLM proxy)")
+@click.option("--skip-deps", is_flag=True, help="Skip dependency installation")
+@click.option("--no-start", is_flag=True, help="Configure only, don't start the daemon")
+def command_center(
+    license_key: str | None,
+    telegram_token: str | None,
+    anthropic_key: str | None,
+    skip_deps: bool,
+    no_start: bool,
+) -> None:
+    """Set up the Slopless Command Center — AI-powered PR orchestration via Telegram.
+
+    One command to go from zero to a working Telegram bot that scans repos,
+    reviews PRs, implements features, and iterates to perfection.
+
+    \b
+    Quick start:
+        slopless command-center                          # Uses stored license key
+        slopless command-center --license-key sl-xxx     # Provide key directly
+
+    \b
+    Prerequisites:
+        - GitHub CLI authenticated (gh auth login)
+        - That's it. Everything else is auto-installed.
+
+    \b
+    What it does:
+        1. Validates your slopless license
+        2. Installs ZeroClaw (if needed)
+        3. Configures the Telegram bot
+        4. Installs all orchestration skills
+        5. Starts the daemon — you're live
+    """
+    console.print()
+    console.print(Panel.fit(
+        "[bold]Slopless Command Center[/bold]\n"
+        "[dim]AI-powered PR orchestration via Telegram[/dim]",
+        border_style="cyan",
+    ))
+    console.print()
+
+    # ── Step 1: License Key ──────────────────────────────────────────────
+    console.print("[bold]\\[1/5] License[/bold]")
+
+    if not license_key:
+        license_key = get_license_key()
+
+    if not license_key:
+        license_key = Prompt.ask("  Enter your slopless license key")
+
+    if not license_key:
+        console.print("  [red]✗[/red] License key is required")
+        console.print("  [dim]Get one at https://slopless.work[/dim]")
+        raise click.Abort()
+
+    with Progress(SpinnerColumn(), TextColumn("[dim]Validating license...[/dim]"), console=console, transient=True) as progress:
+        progress.add_task("validate", total=None)
+
+        async def _validate():
+            return await validate_license(license_key)
+
+        try:
+            info = asyncio.run(_validate())
+        except Exception:
+            console.print("  [red]✗[/red] Could not reach licensing server")
+            console.print("  [dim]Check your connection and try again[/dim]")
+            raise click.Abort()
+
+    if not info.valid:
+        console.print("  [red]✗[/red] Invalid license key")
+        raise click.Abort()
+
+    save_credentials(Credentials(license_key=license_key))
+    org_name = info.organization or "personal"
+    console.print(f"  [green]✓[/green] License valid — {info.plan} ({org_name})")
+    console.print()
+
+    # ── Step 2: Dependencies ─────────────────────────────────────────────
+    console.print("[bold]\\[2/5] Dependencies[/bold]")
+
+    if not skip_deps:
+        # ZeroClaw
+        if _command_exists("zeroclaw"):
+            zc_ver = _run_shell("zeroclaw --version 2>/dev/null || echo unknown", check=False).stdout.strip()
+            console.print(f"  [green]✓[/green] ZeroClaw ({zc_ver})")
+        else:
+            console.print("  [cyan]→[/cyan] Installing ZeroClaw...")
+            if _command_exists("brew"):
+                result = _run_shell("brew install zeroclaw", check=False)
+                if result.returncode == 0:
+                    console.print("  [green]✓[/green] ZeroClaw installed via Homebrew")
+                else:
+                    console.print("  [red]✗[/red] Failed to install ZeroClaw")
+                    console.print("  [dim]Try manually: brew install zeroclaw[/dim]")
+                    raise click.Abort()
+            else:
+                console.print("  [red]✗[/red] Homebrew not found — install ZeroClaw manually")
+                console.print("  [dim]See: https://github.com/zeroclaw-labs/zeroclaw[/dim]")
+                raise click.Abort()
+
+        # GitHub CLI
+        if _command_exists("gh"):
+            gh_auth = _run_shell("gh auth status 2>&1", check=False)
+            if "Logged in" in gh_auth.stdout or "Logged in" in gh_auth.stderr:
+                console.print("  [green]✓[/green] GitHub CLI authenticated")
+            else:
+                console.print("  [yellow]![/yellow] GitHub CLI not authenticated")
+                console.print("  [dim]Run: gh auth login[/dim]")
+        else:
+            console.print("  [yellow]![/yellow] GitHub CLI not found (optional but recommended)")
+            console.print("  [dim]Install: brew install gh[/dim]")
+
+        # Claude Code (optional)
+        if _command_exists("claude"):
+            console.print("  [green]✓[/green] Claude Code CLI")
+        else:
+            console.print("  [dim]  ○ Claude Code CLI not found (optional, for feature implementation)[/dim]")
+    else:
+        console.print("  [dim]Skipped[/dim]")
+
+    console.print()
+
+    # ── Step 3: Telegram Bot ─────────────────────────────────────────────
+    console.print("[bold]\\[3/5] Telegram Bot[/bold]")
+
+    if not telegram_token:
+        # Check if already configured in ZeroClaw
+        zc_config_path = Path.home() / ".zeroclaw" / "config.toml"
+        existing_token = None
+        if zc_config_path.exists():
+            content = zc_config_path.read_text()
+            import re as _re
+            match = _re.search(r'bot_token\s*=\s*"([^"]+)"', content)
+            if match:
+                existing_token = match.group(1)
+
+        if existing_token:
+            console.print("  [green]✓[/green] Telegram bot already configured")
+            telegram_token = existing_token
+        else:
+            console.print("  [cyan]→[/cyan] You need a Telegram bot token.")
+            console.print()
+            console.print("  [bold]Quick setup (takes 30 seconds):[/bold]")
+            console.print("  1. Open Telegram → search @BotFather")
+            console.print("  2. Send /newbot")
+            console.print("  3. Name it (e.g., 'Slopless Command Center')")
+            console.print("  4. Pick a username ending in 'bot'")
+            console.print("  5. Copy the token BotFather gives you")
+            console.print()
+            telegram_token = Prompt.ask("  Paste your bot token here")
+
+    if not telegram_token:
+        console.print("  [red]✗[/red] Telegram bot token is required")
+        raise click.Abort()
+
+    console.print(f"  [green]✓[/green] Bot token set ({telegram_token[:8]}...)")
+    console.print()
+
+    # ── Step 4: Configure ZeroClaw ───────────────────────────────────────
+    console.print("[bold]\\[4/5] Configuration[/bold]")
+
+    zeroclaw_dir = Path.home() / ".zeroclaw"
+    zeroclaw_dir.mkdir(parents=True, exist_ok=True)
+    (zeroclaw_dir / "workspace" / "skills").mkdir(parents=True, exist_ok=True)
+    (zeroclaw_dir / "workspace" / "state").mkdir(parents=True, exist_ok=True)
+
+    api_url = get_api_url()
+
+    if anthropic_key:
+        provider_line = 'default_provider = "anthropic"'
+        api_key_line = f'api_key = "{anthropic_key}"'
+        console.print("  [green]✓[/green] Using your Anthropic key (BYOK mode)")
+    else:
+        provider_line = f'default_provider = "custom:{api_url}/v1/llm"'
+        api_key_line = f'api_key = "{license_key}"'
+        console.print("  [green]✓[/green] Using slopless LLM proxy (license-authenticated)")
+
+    config_content = f'''{provider_line}
+default_model = "claude-sonnet-4-20250514"
+default_temperature = 0.7
+{api_key_line}
+
+[autonomy]
+level = "supervised"
+workspace_only = false
+allowed_commands = [
+    "git", "gh", "claude", "slopless", "unslop",
+    "ls", "cat", "grep", "find", "echo", "pwd", "wc",
+    "head", "tail", "date", "mkdir", "cp", "mv", "gpg",
+]
+forbidden_paths = ["/etc/shadow", "/proc", "/sys", "/boot", "/dev", "~/.ssh", "~/.aws"]
+allowed_roots = ["~/work", "~/projects", "~/repos", "/tmp"]
+max_actions_per_hour = 200
+max_cost_per_day_cents = 5000
+
+[agent]
+compact_context = false
+max_tool_iterations = 25
+max_history_messages = 50
+parallel_tools = true
+tool_dispatcher = "auto"
+
+[scheduler]
+enabled = true
+max_tasks = 64
+max_concurrent = 8
+
+[skills]
+open_skills_enabled = false
+
+[memory]
+backend = "sqlite"
+auto_save = true
+embedding_provider = "none"
+
+[channels_config]
+cli = true
+message_timeout_secs = 600
+
+[channels_config.telegram]
+bot_token = "{telegram_token}"
+allowed_users = ["*"]
+
+[gateway]
+port = 42617
+host = "127.0.0.1"
+require_pairing = true
+
+[runtime]
+kind = "native"
+
+[secrets]
+encrypt = true
+
+[heartbeat]
+enabled = false
+interval_minutes = 60
+
+[cron]
+enabled = true
+max_run_history = 50
+
+[tunnel]
+provider = "none"
+
+[reliability]
+provider_retries = 3
+provider_backoff_ms = 1000
+'''
+
+    config_path = zeroclaw_dir / "config.toml"
+    config_path.write_text(config_content)
+    console.print("  [green]✓[/green] ZeroClaw config written")
+
+    # Install skills
+    skills_dir = COMMAND_CENTER_SKILLS_DIR
+    if skills_dir.exists():
+        installed = 0
+        for skill_dir in sorted(skills_dir.iterdir()):
+            skill_md = skill_dir / "SKILL.md"
+            if skill_md.exists():
+                dest = zeroclaw_dir / "workspace" / "skills" / skill_dir.name
+                if dest.exists():
+                    import shutil
+                    shutil.rmtree(dest)
+                import shutil
+                shutil.copytree(skill_dir, dest)
+                installed += 1
+        console.print(f"  [green]✓[/green] {installed} skills installed")
+    else:
+        console.print("  [yellow]![/yellow] Skills directory not found — skills will load from defaults")
+
+    # Write identity
+    identity_path = zeroclaw_dir / "workspace" / "IDENTITY.md"
+    identity_path.write_text(
+        "# Slopless Command Center\\n\\n"
+        "I am the Slopless Command Center — an always-on AI assistant for code security "
+        "and PR orchestration.\\n\\n"
+        "I help teams:\\n"
+        "- Scan repos for security vulnerabilities using `slopless scan`\\n"
+        "- Review pull requests with `slopless review-pr`\\n"
+        "- Implement features and raise PRs via Claude Code\\n"
+        "- Iterate on scan findings until clean\\n"
+        "- Track and adopt existing workstreams\\n\\n"
+        f"Organization: {org_name}\\n"
+        f"License: {info.plan}\\n"
+    )
+    console.print("  [green]✓[/green] Identity configured")
+    console.print()
+
+    # ── Step 5: Start ────────────────────────────────────────────────────
+    console.print("[bold]\\[5/5] Launch[/bold]")
+
+    if no_start:
+        console.print("  [dim]Skipped (--no-start). Start manually:[/dim]")
+        console.print(f"  [bold]ANTHROPIC_API_KEY={license_key} zeroclaw daemon[/bold]")
+    else:
+        console.print("  [green]✓[/green] Starting daemon...")
+        console.print()
+        console.print(Panel.fit(
+            "[bold green]Command Center is live![/bold green]\\n\\n"
+            "Open your Telegram bot and send a message.\\n\\n"
+            "[bold]Try these commands:[/bold]\\n"
+            "  • [cyan]list projects[/cyan] — discover your workspace\\n"
+            "  • [cyan]scan <repo>[/cyan] — run a security scan\\n"
+            "  • [cyan]review PR <url>[/cyan] — review a pull request\\n"
+            "  • [cyan]status[/cyan] — see what's being tracked\\n\\n"
+            "[dim]Press Ctrl+C to stop the daemon[/dim]",
+            border_style="green",
+        ))
+        console.print()
+
+        os.environ["ANTHROPIC_API_KEY"] = license_key
+        os.execvp("zeroclaw", ["zeroclaw", "daemon"])
+
+
+# =============================================================================
 # Git Utility Commands
 # =============================================================================
 

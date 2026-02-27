@@ -1,0 +1,14 @@
+# ZeroClaw runtime state
+workspace/
+state/
+*.db
+*.db-wal
+*.db-shm
+audit.log
+
+# Secrets
+.env
+.secret_key
+
+# OS
+.DS_Store
