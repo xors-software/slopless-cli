@@ -24,10 +24,17 @@ if [ -n "${GH_TOKEN:-}" ]; then
   echo -e "${GREEN}  ✓${NC} GH_TOKEN set — GitHub CLI authenticated"
 fi
 
-# Build the ZeroClaw config from env vars
+# Bootstrap workspace structure first (onboard will create defaults)
 ZEROCLAW_DIR="$HOME/.zeroclaw"
 mkdir -p "$ZEROCLAW_DIR/workspace/skills" "$ZEROCLAW_DIR/workspace/state"
 
+echo -e "  ${CYAN}→${NC} Running zeroclaw onboard..."
+zeroclaw onboard \
+  --api-key "$ANTHROPIC_API_KEY" \
+  --provider anthropic \
+  --force 2>/dev/null || true
+
+# Overwrite config with our Railway-specific settings
 TELEGRAM_ALLOWED="${TELEGRAM_ALLOWED_USERS:-*}"
 
 cat > "$ZEROCLAW_DIR/config.toml" << TOML
@@ -129,14 +136,6 @@ EOF
 echo -e "${GREEN}  ✓${NC} Identity configured"
 echo ""
 
-# Onboard
-echo -e "  ${CYAN}→${NC} Running zeroclaw onboard..."
-zeroclaw onboard \
-  --api-key "$ANTHROPIC_API_KEY" \
-  --provider anthropic \
-  --force 2>/dev/null || true
-
-echo ""
 echo -e "${GREEN}  ✓${NC} Starting daemon..."
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
