@@ -1,7 +1,7 @@
 FROM debian:trixie-slim AS base
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl ca-certificates git gpg gnupg2 python3 python3-pip \
+    curl ca-certificates git gpg gnupg2 python3 python3-pip sqlite3 jq \
     && rm -rf /var/lib/apt/lists/*
 
 # Install ZeroClaw from pre-built release
