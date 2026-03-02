@@ -1235,12 +1235,19 @@ allowed_commands = [
     "git", "gh", "claude", "slopless", "unslop",
     "ls", "cat", "grep", "find", "echo", "pwd", "wc",
     "head", "tail", "date", "mkdir", "cp", "mv", "gpg",
-    "curl", "python3", "pip",
+    "curl", "python3", "pip", "env", "printenv",
+    "sed", "tr", "sort", "jq",
 ]
 forbidden_paths = ["/etc/shadow", "/proc", "/sys", "/boot", "/dev", "~/.ssh", "~/.aws"]
 allowed_roots = ["~/work", "~/projects", "~/repos", "/tmp"]
 max_actions_per_hour = 200
 max_cost_per_day_cents = 5000
+shell_env_passthrough = [
+    "NOTION_TOKEN", "NOTION_DASHBOARD_DB",
+    "CLICKUP_TOKEN", "GH_TOKEN",
+    "SLOPLESS_LICENSE_KEY", "SLOPLESS_API_URL",
+    "HOME", "PATH",
+]
 
 [agent]
 compact_context = false
@@ -1280,6 +1287,17 @@ kind = "native"
 
 [secrets]
 encrypt = true
+
+[http_request]
+enabled = true
+allowed_domains = [
+    "api.notion.com", "api.clickup.com", "api.github.com",
+    "api.slopless.work", "api.linear.app", "slack.com",
+]
+
+[web_fetch]
+enabled = true
+allowed_domains = ["*"]
 
 [heartbeat]
 enabled = false
