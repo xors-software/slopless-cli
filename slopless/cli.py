@@ -1235,6 +1235,7 @@ allowed_commands = [
     "git", "gh", "claude", "slopless", "unslop",
     "ls", "cat", "grep", "find", "echo", "pwd", "wc",
     "head", "tail", "date", "mkdir", "cp", "mv", "gpg",
+    "curl", "python3", "pip",
 ]
 forbidden_paths = ["/etc/shadow", "/proc", "/sys", "/boot", "/dev", "~/.ssh", "~/.aws"]
 allowed_roots = ["~/work", "~/projects", "~/repos", "/tmp"]

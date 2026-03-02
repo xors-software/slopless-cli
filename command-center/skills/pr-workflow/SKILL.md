@@ -7,14 +7,19 @@ End-to-end workflow: clone a repo, implement changes, scan for security issues, 
 - User asks to "implement X on repo Y and raise a PR"
 - User asks to "work on" or "build" something and wants a complete PR
 - Any request that implies the full lifecycle: code -> scan -> fix -> PR
+- Invoked by the feature-request skill after spec approval
 
 ## Instructions
 
 ### Step 1: Parse the Request
-Extract from the user's message:
+Extract from the user's message or from the feature-request pipeline context:
 - **repo**: GitHub URL or known repo name (resolve from memory if needed)
 - **task**: what to implement/fix/change
+- **spec** (optional): path to a generated spec file (e.g., `/tmp/spec-*.md` from feature-request skill)
 - **branch** (optional): custom branch name
+- **source_ticket** (optional): Notion page ID, ClickUp task ID, or GitHub issue number to update after PR
+
+If a spec file exists, pass it as context to Claude Code in Step 2.
 
 ### Step 2: Feature Branch (invoke feature-branch skill)
 - Clone the repo to an isolated workspace
@@ -100,8 +105,19 @@ Save to ZeroClaw memory:
 - Task ID, repo, branch, PR URL, scan status, timestamp
 - Open questions for future reference
 
+### Step 9: Update Source Ticket (if applicable)
+If the workflow was triggered from a feature request with a source ticket:
+
+- **GitHub Issue**: Comment with PR link
+  ```bash
+  gh issue comment "$ISSUE_NUM" --repo "$REPO" --body "PR created: $PR_URL"
+  ```
+- **Notion Page**: Update status and add PR URL (use notion-integration skill)
+- **ClickUp Task**: Update status to "in progress" (use feature-request skill logic)
+
 ## Important Notes
 - If any step fails, report clearly which step failed and why
 - Preserve the workspace directory until the PR is merged or closed
 - The user can resume from any step by referencing the task
 - All progress updates go to the active channel (Telegram/CLI)
+- When invoked from feature-request, the spec file should be passed as implementation context

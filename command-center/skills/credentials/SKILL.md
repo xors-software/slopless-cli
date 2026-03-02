@@ -17,6 +17,7 @@ When user wants to add a service credential:
 1. **Identify the service** from the user's message. Supported services:
    - `notion` — Notion API integration token
    - `github` — GitHub PAT (may already be configured via gh CLI)
+   - `clickup` — ClickUp API token
    - `slack` — Slack bot token
    - `linear` — Linear API key
    - `jira` — Jira API token
@@ -32,13 +33,20 @@ When user wants to add a service credential:
    memory save credential:notion {"token": "<value>", "added_at": "<timestamp>", "added_by": "<telegram_user>"}
    ```
 
-4. **Verify the credential works** (service-specific):
+4. **Check environment fallback first** — if NOTION_TOKEN, CLICKUP_TOKEN, or GH_TOKEN is set as an env var, use it as the default and store in memory:
+   ```bash
+   [ -n "${NOTION_TOKEN:-}" ] && memory save credential:notion '{"token":"'"$NOTION_TOKEN"'","source":"env","added_at":"'"$(date -Iseconds)"'"}'
+   [ -n "${CLICKUP_TOKEN:-}" ] && memory save credential:clickup '{"token":"'"$CLICKUP_TOKEN"'","source":"env","added_at":"'"$(date -Iseconds)"'"}'
+   ```
+
+5. **Verify the credential works** (service-specific):
    - **Notion**: `curl -s -H "Authorization: Bearer <token>" -H "Notion-Version: 2022-06-28" https://api.notion.com/v1/users/me`
    - **GitHub**: `gh auth status` or `curl -H "Authorization: Bearer <token>" https://api.github.com/user`
+   - **ClickUp**: `curl -s -H "Authorization: <token>" https://api.clickup.com/api/v2/user`
    - **Slack**: `curl -s -H "Authorization: Bearer <token>" https://slack.com/api/auth.test`
    - **Linear**: `curl -s -H "Authorization: <token>" https://api.linear.app/graphql -d '{"query":"{ viewer { id name } }"}'`
 
-5. **Report result**:
+6. **Report result**:
    ```
    Credential Added
    ━━━━━━━━━━━━━━━━━━━━
@@ -66,6 +74,7 @@ When user asks to see configured credentials:
    Service     Status      Added
    notion      connected   2d ago
    github      connected   (via gh CLI)
+   clickup     connected   1d ago
    slack       not set     —
    linear      not set     —
 

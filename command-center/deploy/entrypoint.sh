@@ -132,9 +132,19 @@ I help teams:
 - Implement features and raise PRs via Claude Code
 - Iterate on scan findings until clean
 - Track and adopt existing workstreams
+- Take in feature requests and generate specs + PRs end-to-end
+- Read and write to Notion, ClickUp, and GitHub issues
 EOF
 
 echo -e "${GREEN}  ✓${NC} Identity configured"
+
+# Bootstrap integration credentials from env vars (if set)
+if [ -n "${NOTION_TOKEN:-}" ]; then
+  echo -e "${GREEN}  ✓${NC} NOTION_TOKEN detected — will be available via credentials skill"
+fi
+if [ -n "${CLICKUP_TOKEN:-}" ]; then
+  echo -e "${GREEN}  ✓${NC} CLICKUP_TOKEN detected — will be available via credentials skill"
+fi
 echo ""
 
 echo -e "${GREEN}  ✓${NC} Starting daemon..."
