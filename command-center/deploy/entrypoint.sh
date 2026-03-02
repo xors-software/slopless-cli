@@ -69,8 +69,8 @@ shell_env_passthrough = [
 
 [agent]
 compact_context = false
-max_tool_iterations = 25
-max_history_messages = 50
+max_tool_iterations = 75
+max_history_messages = 100
 parallel_tools = true
 tool_dispatcher = "auto"
 
