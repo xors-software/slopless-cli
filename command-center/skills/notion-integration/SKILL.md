@@ -314,3 +314,5 @@ This lets future requests resolve "my dashboard" or "the Q1 page" without re-sea
 - For large databases, use filters to reduce response size
 - If the Notion API returns 401, the token is invalid or the page isn't shared — report clearly
 - If the Notion API returns 429, back off and retry after the `Retry-After` header value
+- When duplicating or creating dated entries (e.g., daily logs), ALWAYS place the new entry at the TOP of the list (most recent first). In Notion databases, sort by date descending. For page blocks, prepend new content before existing blocks using the `after` parameter set to the first child block ID.
+- The user may have multiple Notion workspaces — store credentials per workspace if needed (e.g., `credential:notion:personal`, `credential:notion:xors`)
