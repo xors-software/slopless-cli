@@ -49,6 +49,7 @@ allowed_commands = [
     "git", "gh", "claude", "slopless", "unslop",
     "ls", "cat", "grep", "find", "echo", "pwd", "wc",
     "head", "tail", "date", "mkdir", "cp", "mv", "gpg",
+    "curl", "python3",
 ]
 forbidden_paths = ["/etc/shadow", "/proc", "/sys", "/boot", "/dev"]
 allowed_roots = ["/app", "/tmp", "/root"]
