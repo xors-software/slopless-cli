@@ -39,8 +39,16 @@ gh issue view "$ISSUE_NUM" --repo "$REPO" --json title,body,labels,assignees,mil
 PAGE_ID=$(echo "$NOTION_URL" | sed -E 's#.*-([a-f0-9]{32})$#\1#' | sed 's/./&-/8;s/./&-/13;s/./&-/18;s/./&-/23')
 
 # Use notion-integration skill to read the page
-recall credential:notion
-NOTION_TOKEN=$(recall credential:notion | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])")
+# Resolve token: env var > memory > prompt
+if [ -n "${NOTION_TOKEN:-}" ]; then
+  export NOTION_TOKEN
+elif CRED_JSON=$(recall credential:notion 2>/dev/null) && [ -n "$CRED_JSON" ]; then
+  NOTION_TOKEN=$(echo "$CRED_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])")
+  export NOTION_TOKEN
+else
+  echo "Need NOTION_TOKEN — add to .env or send via 'connect notion'"
+  exit 1
+fi
 
 curl -s "https://api.notion.com/v1/pages/$PAGE_ID" \
   -H "Authorization: Bearer $NOTION_TOKEN" \
@@ -79,9 +87,16 @@ print(f'Body: {chr(10).join(body_parts)}')
 
 #### D) ClickUp Task URL
 ```bash
-# ClickUp API — requires credential:clickup
-recall credential:clickup
-CLICKUP_TOKEN=$(recall credential:clickup | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])")
+# Resolve token: env var > memory > prompt
+if [ -n "${CLICKUP_TOKEN:-}" ]; then
+  export CLICKUP_TOKEN
+elif CRED_JSON=$(recall credential:clickup 2>/dev/null) && [ -n "$CRED_JSON" ]; then
+  CLICKUP_TOKEN=$(echo "$CRED_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])")
+  export CLICKUP_TOKEN
+else
+  echo "Need CLICKUP_TOKEN — add to .env or send via 'connect clickup'"
+  exit 1
+fi
 TASK_ID=$(echo "$CLICKUP_URL" | sed -E 's#.*/t/([a-z0-9]+).*#\1#')
 
 curl -s "https://api.clickup.com/api/v2/task/$TASK_ID" \
@@ -142,7 +157,7 @@ slopless feature "$FEATURE_DESCRIPTION" --output /tmp/spec-$TASK_ID.md --format 
 #### Method B: Via Slopless API (if the CLI can't reach the project)
 ```bash
 API_URL="${SLOPLESS_API_URL:-https://api.slopless.work}"
-LICENSE_KEY=$(recall credential:slopless-license || echo "$SLOPLESS_LICENSE_KEY")
+LICENSE_KEY="${SLOPLESS_LICENSE_KEY:-$(recall credential:slopless-license 2>/dev/null || echo '')}"
 
 curl -s -X POST "$API_URL/v1/feature/spec/generate" \
   -H "Authorization: Bearer $LICENSE_KEY" \
@@ -202,8 +217,11 @@ Actions:
 #### Save to Notion
 If user asks to save the spec to Notion, use the notion-integration skill:
 ```bash
-NOTION_TOKEN=$(recall credential:notion | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])")
-DATABASE_ID=$(recall notion:databases | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('specs', d.get('features', '')))")
+# Resolve token: env var > memory
+if [ -z "${NOTION_TOKEN:-}" ]; then
+  NOTION_TOKEN=$(recall credential:notion 2>/dev/null | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])" 2>/dev/null || echo "")
+fi
+DATABASE_ID=$(recall notion:databases 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('specs', d.get('features', '')))" 2>/dev/null || echo "")
 
 SPEC_CONTENT=$(cat /tmp/spec-$TASK_ID.md)
 
@@ -265,7 +283,10 @@ gh issue create --repo "$REPO" \
 
 #### Export to ClickUp
 ```bash
-CLICKUP_TOKEN=$(recall credential:clickup | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])")
+# Resolve token: env var > memory
+if [ -z "${CLICKUP_TOKEN:-}" ]; then
+  CLICKUP_TOKEN=$(recall credential:clickup 2>/dev/null | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])" 2>/dev/null || echo "")
+fi
 LIST_ID="<target-list-id>"
 
 curl -s -X POST "https://api.clickup.com/api/v2/list/$LIST_ID/task" \

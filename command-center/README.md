@@ -12,8 +12,11 @@ cd command-center
 Then start the daemon:
 
 ```bash
-ANTHROPIC_API_KEY="..." zeroclaw daemon
+./start.sh
 ```
+
+This sources `.env`, seeds credentials into ZeroClaw memory, and starts the daemon.
+Do **not** run `zeroclaw daemon` directly — your tokens won't be loaded.
 
 Open your Telegram bot and start commanding.
 
@@ -65,12 +68,13 @@ Shared opinionated standards in `rules/`:
 
 ```
 command-center/
-  config.toml       # ZeroClaw config (committed, secrets in .env)
+  start.sh          # Start daemon (sources .env, seeds credentials)
   setup.sh          # One-command setup for new team members
   .env.example      # Environment variable template
   .env              # Your secrets (gitignored)
   skills/           # ZeroClaw skills (SKILL.md files)
   rules/            # Shared coding standards
+  deploy/           # Railway deployment (entrypoint, Dockerfile)
   workspace/        # Ephemeral working dirs (gitignored)
   state/            # ZeroClaw state (gitignored)
 ```
@@ -91,4 +95,4 @@ command-center/
 2. `cd command-center`
 3. `./setup.sh` (guided, checks all prerequisites)
 4. Set your Telegram username in the ZeroClaw config allowlist
-5. `zeroclaw daemon`
+5. `./start.sh` (not `zeroclaw daemon` — see note above)

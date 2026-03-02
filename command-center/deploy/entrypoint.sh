@@ -156,12 +156,43 @@ EOF
 
 echo -e "${GREEN}  ✓${NC} Identity configured"
 
-# Bootstrap integration credentials from env vars (if set)
-if [ -n "${NOTION_TOKEN:-}" ]; then
-  echo -e "${GREEN}  ✓${NC} NOTION_TOKEN detected — will be available via credentials skill"
-fi
-if [ -n "${CLICKUP_TOKEN:-}" ]; then
-  echo -e "${GREEN}  ✓${NC} CLICKUP_TOKEN detected — will be available via credentials skill"
+# Pre-seed credentials from env vars into ZeroClaw memory (SQLite)
+# This ensures `recall credential:*` works immediately after startup,
+# even if the daemon's memory was wiped between deploys.
+BRAIN_DB="$ZEROCLAW_DIR/workspace/memory/brain.db"
+
+seed_credential() {
+  local key="$1" token="$2" service="$3"
+  if [ -z "$token" ]; then return; fi
+
+  local now
+  now=$(date -Iseconds 2>/dev/null || date +%Y-%m-%dT%H:%M:%S%z)
+  local payload='{"token":"'"$token"'","source":"env","added_at":"'"$now"'"}'
+
+  sqlite3 "$BRAIN_DB" "
+    PRAGMA trusted_schema = ON;
+    INSERT INTO memories (id, key, content, category, created_at, updated_at)
+    VALUES (
+      lower(hex(randomblob(16))),
+      '$key',
+      '$payload',
+      'core',
+      datetime('now'),
+      datetime('now')
+    )
+    ON CONFLICT(key) DO UPDATE SET
+      content = excluded.content,
+      updated_at = excluded.updated_at;
+  " 2>/dev/null && echo -e "${GREEN}  ✓${NC} $service token seeded in memory" \
+              || echo -e "${YELLOW}  !${NC} Could not seed $service (DB may not exist yet)"
+}
+
+if [ -f "$BRAIN_DB" ]; then
+  seed_credential "credential:notion"  "${NOTION_TOKEN:-}"   "Notion"
+  seed_credential "credential:clickup" "${CLICKUP_TOKEN:-}"  "ClickUp"
+  seed_credential "credential:github"  "${GH_TOKEN:-}"       "GitHub"
+else
+  echo -e "${YELLOW}  !${NC} brain.db not found — credentials will load from env at runtime"
 fi
 echo ""
 

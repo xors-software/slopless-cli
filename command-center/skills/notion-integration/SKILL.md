@@ -14,20 +14,31 @@ Read and write to Notion workspaces — query databases, read pages, create/upda
 
 ### Prerequisites
 
-1. **Check for Notion credential**:
-   ```
-   recall credential:notion
-   ```
-   If missing, prompt:
-   > "I need your Notion integration token. Create one at https://www.notion.so/my-integrations — make sure to give it access to the pages/databases you want me to read/write.
-   >
-   > Send me the token and I'll store it securely."
-
-   Then store via the credentials skill flow.
-
-2. **Set up the token for API calls**:
+1. **Resolve the Notion token** using the three-tier fallback (env > memory > ask):
    ```bash
-   NOTION_TOKEN=$(recall credential:notion | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])")
+   # Tier 1: Environment variable (most reliable)
+   if [ -n "${NOTION_TOKEN:-}" ]; then
+     export NOTION_TOKEN
+     memory save credential:notion '{"token":"'"$NOTION_TOKEN"'","source":"env","added_at":"'"$(date -Iseconds)"'"}' 2>/dev/null || true
+
+   # Tier 2: ZeroClaw memory
+   elif CRED_JSON=$(recall credential:notion 2>/dev/null) && [ -n "$CRED_JSON" ]; then
+     NOTION_TOKEN=$(echo "$CRED_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])")
+     export NOTION_TOKEN
+
+   # Tier 3: Ask user
+   else
+     echo "I need your Notion integration token."
+     echo "Create one at https://www.notion.so/my-integrations"
+     echo "Send me the token and I'll store it securely."
+     echo ""
+     echo "Tip: Add NOTION_TOKEN=<value> to your command center .env file for persistence."
+     exit 1
+   fi
+   ```
+
+2. **Set the API version**:
+   ```bash
    NOTION_VERSION="2022-06-28"
    ```
 
