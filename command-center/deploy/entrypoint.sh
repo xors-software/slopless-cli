@@ -58,8 +58,11 @@ allowed_roots = ["/app", "/tmp", "/root"]
 max_actions_per_hour = 200
 max_cost_per_day_cents = 5000
 shell_env_passthrough = [
-    "NOTION_TOKEN", "NOTION_DASHBOARD_DB",
-    "CLICKUP_TOKEN", "GH_TOKEN",
+    "NOTION_PERSONAL_TOKEN", "NOTION_XORS_TOKEN", "NOTION_TOKEN",
+    "NOTION_DASHBOARD_DB",
+    "CLICKUP_CLIENT_ID", "CLICKUP_SECRET", "CLICKUP_TOKEN",
+    "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET",
+    "GH_TOKEN",
     "SLOPLESS_LICENSE_KEY", "SLOPLESS_API_URL",
     "HOME", "PATH",
 ]
@@ -77,7 +80,7 @@ max_tasks = 64
 max_concurrent = 8
 
 [skills]
-open_skills_enabled = false
+open_skills_enabled = true
 
 [memory]
 backend = "sqlite"
@@ -109,6 +112,7 @@ enabled = true
 allowed_domains = [
     "api.notion.com", "api.clickup.com", "api.github.com",
     "api.slopless.work", "api.linear.app", "slack.com",
+    "*.atlassian.net", "api.pushover.net",
 ]
 
 [web_fetch]
@@ -157,6 +161,12 @@ EOF
 
 echo -e "${GREEN}  ✓${NC} Identity configured"
 
+# Map Railway-specific env var names to the generic names used by skills.
+# Skills reference NOTION_TOKEN / CLICKUP_TOKEN — alias them here so both
+# the seeding below and runtime shell commands resolve correctly.
+export NOTION_TOKEN="${NOTION_XORS_TOKEN:-${NOTION_PERSONAL_TOKEN:-${NOTION_TOKEN:-}}}"
+export CLICKUP_TOKEN="${CLICKUP_TOKEN:-${CLICKUP_CLIENT_ID:-}}"
+
 # Pre-seed credentials from env vars into ZeroClaw memory (SQLite).
 # Non-critical: if seeding fails, credentials are still available via
 # shell_env_passthrough at runtime. Guard the whole block so it never
@@ -191,9 +201,13 @@ if command -v sqlite3 &>/dev/null; then
   }
 
   if [ -f "$BRAIN_DB" ]; then
-    seed_credential "credential:notion"  "${NOTION_TOKEN:-}"   "Notion"
-    seed_credential "credential:clickup" "${CLICKUP_TOKEN:-}"  "ClickUp"
-    seed_credential "credential:github"  "${GH_TOKEN:-}"       "GitHub"
+    seed_credential "credential:notion"          "${NOTION_TOKEN:-}"            "Notion (default)"
+    seed_credential "credential:notion:personal" "${NOTION_PERSONAL_TOKEN:-}"   "Notion (personal)"
+    seed_credential "credential:notion:xors"     "${NOTION_XORS_TOKEN:-}"       "Notion (xors)"
+    seed_credential "credential:clickup"         "${CLICKUP_TOKEN:-}"           "ClickUp"
+    seed_credential "credential:github"          "${GH_TOKEN:-}"                "GitHub"
+    seed_credential "credential:google"          "${GOOGLE_CLIENT_ID:-}"        "Google"
+    seed_credential "credential:slopless"        "${SLOPLESS_LICENSE_KEY:-}"    "Slopless"
   else
     echo -e "${YELLOW}  !${NC} brain.db not found — credentials available via env at runtime"
   fi

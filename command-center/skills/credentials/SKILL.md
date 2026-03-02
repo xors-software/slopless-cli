@@ -17,11 +17,21 @@ When any skill needs a credential, follow this **three-tier fallback** in order:
 
 1. **Environment variable** (most reliable — survives daemon restarts):
    ```bash
-   # Env var names: NOTION_TOKEN, CLICKUP_TOKEN, GH_TOKEN, LINEAR_TOKEN, SLACK_TOKEN
+   # Primary env vars (aliased from Railway names at startup):
+   #   NOTION_TOKEN        ← NOTION_XORS_TOKEN or NOTION_PERSONAL_TOKEN
+   #   CLICKUP_TOKEN       ← CLICKUP_CLIENT_ID
+   #   GH_TOKEN
+   #   SLOPLESS_LICENSE_KEY
+   #
+   # Per-workspace Notion tokens are also available directly:
+   #   NOTION_PERSONAL_TOKEN, NOTION_XORS_TOKEN
+   #
+   # OAuth pairs (ClickUp, Google):
+   #   CLICKUP_CLIENT_ID + CLICKUP_SECRET
+   #   GOOGLE_CLIENT_ID  + GOOGLE_CLIENT_SECRET
    if [ -n "${NOTION_TOKEN:-}" ]; then
      TOKEN="$NOTION_TOKEN"
-     # Cache in memory so recall works for other skills
-     memory save credential:notion '{"token":"'"$NOTION_TOKEN"'","source":"env","added_at":"'"$(date -Iseconds)"'"}'
+     memory save credential:notion '{"token":"'"$NOTION_TOKEN"'","source":"env","added_at":"'"$(date -Iseconds)"'"}' 2>/dev/null || true
    fi
    ```
 
@@ -42,18 +52,19 @@ When any skill needs a credential, follow this **three-tier fallback** in order:
 When user wants to add a service credential:
 
 1. **Identify the service** from the user's message. Supported services:
-   - `notion` — Notion API integration token (env: `NOTION_TOKEN`)
+   - `notion` — Notion integration token (env: `NOTION_XORS_TOKEN` / `NOTION_PERSONAL_TOKEN`, aliased to `NOTION_TOKEN`)
    - `github` — GitHub PAT (env: `GH_TOKEN`, may already be configured via gh CLI)
-   - `clickup` — ClickUp API token (env: `CLICKUP_TOKEN`)
-   - `slack` — Slack bot token (env: `SLACK_TOKEN`)
-   - `linear` — Linear API key (env: `LINEAR_TOKEN`)
-   - `jira` — Jira API token (env: `JIRA_TOKEN`)
+   - `clickup` — ClickUp OAuth (env: `CLICKUP_CLIENT_ID` + `CLICKUP_SECRET`, aliased to `CLICKUP_TOKEN`)
+   - `google` — Google OAuth (env: `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET`)
+   - `slopless` — Slopless license (env: `SLOPLESS_LICENSE_KEY`)
    - `custom` — Any arbitrary key/value pair
 
-2. **Check environment variable first** — the `.env` file is the canonical source:
+2. **Check environment variable first** — Railway env vars are the canonical source:
    ```bash
-   [ -n "${NOTION_TOKEN:-}" ] && memory save credential:notion '{"token":"'"$NOTION_TOKEN"'","source":"env","added_at":"'"$(date -Iseconds)"'"}'
-   [ -n "${CLICKUP_TOKEN:-}" ] && memory save credential:clickup '{"token":"'"$CLICKUP_TOKEN"'","source":"env","added_at":"'"$(date -Iseconds)"'"}'
+   # Notion (aliased to NOTION_TOKEN at startup from NOTION_XORS_TOKEN / NOTION_PERSONAL_TOKEN)
+   [ -n "${NOTION_TOKEN:-}" ] && memory save credential:notion '{"token":"'"$NOTION_TOKEN"'","source":"env","added_at":"'"$(date -Iseconds)"'"}' 2>/dev/null || true
+   # ClickUp (aliased to CLICKUP_TOKEN from CLICKUP_CLIENT_ID)
+   [ -n "${CLICKUP_TOKEN:-}" ] && memory save credential:clickup '{"token":"'"$CLICKUP_TOKEN"'","source":"env","added_at":"'"$(date -Iseconds)"'"}' 2>/dev/null || true
    ```
    If the env var is set, save to memory and report it as connected. Done.
 
@@ -73,8 +84,7 @@ When user wants to add a service credential:
    - **Notion**: `curl -s -H "Authorization: Bearer <token>" -H "Notion-Version: 2022-06-28" https://api.notion.com/v1/users/me`
    - **GitHub**: `gh auth status` or `curl -H "Authorization: Bearer <token>" https://api.github.com/user`
    - **ClickUp**: `curl -s -H "Authorization: <token>" https://api.clickup.com/api/v2/user`
-   - **Slack**: `curl -s -H "Authorization: Bearer <token>" https://slack.com/api/auth.test`
-   - **Linear**: `curl -s -H "Authorization: <token>" https://api.linear.app/graphql -d '{"query":"{ viewer { id name } }"}'`
+   - **Slopless**: `slopless --version` (license check happens at scan time)
 
 6. **Report result**:
    ```
@@ -101,12 +111,13 @@ When user asks to see configured credentials:
    Configured Integrations
    ━━━━━━━━━━━━━━━━━━━━━━━━
 
-   Service     Status      Added
-   notion      connected   2d ago
-   github      connected   (via gh CLI)
-   clickup     connected   1d ago
-   slack       not set     —
-   linear      not set     —
+   Service        Status      Added
+   notion (xors)  connected   2d ago
+   notion (personal) connected 2d ago
+   github         connected   (via gh CLI)
+   clickup        connected   1d ago
+   google         connected   1d ago
+   slopless       connected   1d ago
 
    "connect <service>" to add a new integration.
    "remove <service>" to disconnect.

@@ -58,10 +58,17 @@ seed_credential() {
               || warn "Could not seed $service token (DB may be locked)"
 }
 
+export NOTION_TOKEN="${NOTION_XORS_TOKEN:-${NOTION_PERSONAL_TOKEN:-${NOTION_TOKEN:-}}}"
+export CLICKUP_TOKEN="${CLICKUP_TOKEN:-${CLICKUP_CLIENT_ID:-}}"
+
 if [ -f "$BRAIN_DB" ]; then
-  seed_credential "credential:notion"  "${NOTION_TOKEN:-}"   "Notion"
-  seed_credential "credential:clickup" "${CLICKUP_TOKEN:-}"  "ClickUp"
-  seed_credential "credential:github"  "${GH_TOKEN:-}"       "GitHub"
+  seed_credential "credential:notion"          "${NOTION_TOKEN:-}"            "Notion (default)"
+  seed_credential "credential:notion:personal" "${NOTION_PERSONAL_TOKEN:-}"   "Notion (personal)"
+  seed_credential "credential:notion:xors"     "${NOTION_XORS_TOKEN:-}"       "Notion (xors)"
+  seed_credential "credential:clickup"         "${CLICKUP_TOKEN:-}"           "ClickUp"
+  seed_credential "credential:github"          "${GH_TOKEN:-}"                "GitHub"
+  seed_credential "credential:google"          "${GOOGLE_CLIENT_ID:-}"        "Google"
+  seed_credential "credential:slopless"        "${SLOPLESS_LICENSE_KEY:-}"    "Slopless"
 else
   warn "brain.db not found — credentials will load from env vars at runtime"
 fi
