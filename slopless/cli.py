@@ -1382,6 +1382,213 @@ provider_backoff_ms = 1000
 
 
 # =============================================================================
+# Local Diff Scan Commands
+# =============================================================================
+
+
+@cli.command("diff-scan")
+@click.option("--base", default=None, help="Base branch to diff against (default: auto-detect)")
+@click.option("--full-repo", is_flag=True, help="Scan entire repo instead of just changed files")
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["text", "rich", "json"]),
+    default="text",
+    help="Output format (text is optimized for Claude Code)",
+)
+@click.option("--output", "-o", type=click.Path(), help="Save report to file")
+def diff_scan(
+    base: str | None,
+    full_repo: bool,
+    output_format: str,
+    output: str | None,
+) -> None:
+    """Scan current branch changes for security vulnerabilities.
+
+    Diff-aware local scan designed for use with Claude Code in VS Code.
+    Detects your current branch, computes changes against the base branch,
+    and runs Slopless security analysis scoped to your changes.
+
+    Examples:
+        slopless diff-scan                     # Auto-detect base branch
+        slopless diff-scan --base main         # Explicit base branch
+        slopless diff-scan --format json       # Machine-friendly output
+        slopless diff-scan --format rich       # Rich terminal output
+        slopless diff-scan --full-repo         # Scan entire repo, not just diff
+        slopless diff-scan -o report.json      # Save to file
+    """
+    from slopless.local_scan import (
+        detect_git_state,
+        format_json,
+        format_text,
+        print_rich,
+        run_diff_scan,
+    )
+
+    # Detect git state
+    git_state = detect_git_state(repo_path=".", base_branch=base)
+
+    if not git_state.is_repo:
+        console.print(f"[red]Error:[/red] {git_state.error}")
+        raise click.Abort()
+
+    if git_state.error:
+        console.print(f"[red]Error:[/red] {git_state.error}")
+        raise click.Abort()
+
+    if not git_state.changed_files and not full_repo:
+        console.print(
+            f"[green]No changes found[/green] on [bold]{git_state.current_branch}[/bold] "
+            f"vs [dim]{git_state.base_branch}[/dim]. Nothing to scan."
+        )
+        return
+
+    # Show status
+    console.print(
+        f"[bold]Scanning:[/bold] {len(git_state.changed_files)} changed files "
+        f"on [bold]{git_state.current_branch}[/bold] vs [dim]{git_state.base_branch}[/dim]"
+    )
+
+    # Check auth
+    license_key = get_license_key()
+    if not license_key:
+        console.print("[red]Not logged in.[/red] Run 'slopless login' to authenticate.")
+        raise click.Abort()
+
+    # Run scan
+    with console.status("[bold blue]Running Slopless scan...[/bold blue]"):
+        result = asyncio.run(run_diff_scan(git_state, scan_full_repo=full_repo))
+
+    # Output
+    if output_format == "json":
+        output_text = format_json(result)
+        console.print(output_text)
+    elif output_format == "rich":
+        print_rich(result)
+    else:
+        output_text = format_text(result)
+        console.print(output_text)
+
+    # Save to file
+    if output:
+        output_path = Path(output)
+        save_text = format_json(result) if output.endswith(".json") else format_text(result)
+        output_path.write_text(save_text)
+        console.print(f"\n[green]Report saved to:[/green] {output_path}")
+
+    # Exit code
+    if not result.success:
+        raise SystemExit(2)
+    if result.critical_count > 0 or result.high_count > 0:
+        raise SystemExit(1)
+
+
+@cli.command("diff-fix")
+@click.option("--base", default=None, help="Base branch to diff against (default: auto-detect)")
+@click.option("--max-rounds", default=3, help="Maximum scan-fix iterations (default: 3)")
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["text", "json"]),
+    default="text",
+    help="Output format",
+)
+def diff_fix(
+    base: str | None,
+    max_rounds: int,
+    output_format: str,
+) -> None:
+    """Run a scan-fix loop on current branch changes.
+
+    Scans, reports findings for Claude Code to fix, then re-scans.
+    Designed to be used iteratively with Claude Code applying fixes
+    between scan rounds.
+
+    Usage pattern:
+      1. Run 'slopless diff-fix --base main'
+      2. Review findings
+      3. Fix issues (manually or with Claude Code)
+      4. Run 'slopless diff-fix --base main' again
+      5. Repeat until clean or max rounds reached
+
+    Examples:
+        slopless diff-fix                       # Auto-detect, 3 rounds max
+        slopless diff-fix --base main           # Explicit base
+        slopless diff-fix --max-rounds 1        # Single scan pass
+        slopless diff-fix --format json         # Machine-friendly output
+    """
+    from slopless.local_scan import (
+        detect_git_state,
+        format_json,
+        format_text,
+        run_diff_scan,
+    )
+
+    for round_num in range(1, max_rounds + 1):
+        console.print(f"\n[bold]--- Round {round_num}/{max_rounds} ---[/bold]")
+
+        git_state = detect_git_state(repo_path=".", base_branch=base)
+
+        if not git_state.is_repo:
+            console.print(f"[red]Error:[/red] {git_state.error}")
+            raise click.Abort()
+
+        if git_state.error:
+            console.print(f"[red]Error:[/red] {git_state.error}")
+            raise click.Abort()
+
+        if not git_state.changed_files:
+            console.print("[green]No changes found. Nothing to scan.[/green]")
+            return
+
+        console.print(
+            f"Scanning {len(git_state.changed_files)} files: "
+            f"{git_state.current_branch} vs {git_state.base_branch}"
+        )
+
+        with console.status("[bold blue]Running Slopless scan...[/bold blue]"):
+            result = asyncio.run(run_diff_scan(git_state))
+
+        # Output this round
+        if output_format == "json":
+            console.print(format_json(result))
+        else:
+            console.print(format_text(result))
+
+        if not result.success:
+            console.print(f"[red]Scan failed:[/red] {result.error}")
+            raise SystemExit(2)
+
+        if result.is_clean and result.total_count == 0:
+            console.print(f"\n[bold green]CLEAN after round {round_num}. Ready for PR.[/bold green]")
+            return
+
+        if result.is_clean:
+            console.print(
+                f"\n[green]No CRITICAL/HIGH findings after round {round_num}.[/green] "
+                f"{result.medium_count} MEDIUM, {result.low_count} LOW remaining."
+            )
+            return
+
+        if round_num < max_rounds:
+            console.print(
+                f"\n[yellow]Findings remain.[/yellow] Fix the issues above, then this will re-scan."
+            )
+            # In interactive mode, wait for user to fix before continuing
+            # For MVP, each invocation is a single pass - user re-runs manually
+            console.print(
+                "[dim]Re-run 'slopless diff-fix' after fixing issues to continue the loop.[/dim]"
+            )
+            return
+        else:
+            console.print(
+                f"\n[red]Max rounds ({max_rounds}) reached with findings remaining.[/red]"
+            )
+            console.print("[dim]Consider manual review for remaining findings.[/dim]")
+            raise SystemExit(1)
+
+
+# =============================================================================
 # Git Utility Commands
 # =============================================================================
 
