@@ -46,18 +46,27 @@ class Credentials:
 
     license_key: str
     api_url: str = DEFAULT_API_URL
+    notion_token: str | None = None
+    notion_page_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        d: dict[str, Any] = {
             "license_key": self.license_key,
             "api_url": self.api_url,
         }
+        if self.notion_token:
+            d["notion_token"] = self.notion_token
+        if self.notion_page_id:
+            d["notion_page_id"] = self.notion_page_id
+        return d
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Credentials":
         return cls(
             license_key=data["license_key"],
             api_url=data.get("api_url", DEFAULT_API_URL),
+            notion_token=data.get("notion_token"),
+            notion_page_id=data.get("notion_page_id"),
         )
 
 
@@ -149,6 +158,24 @@ def get_auth_headers() -> dict[str, str]:
         "Authorization": f"Bearer {license_key}",
         "X-Device-ID": generate_device_id(),
     }
+
+
+def get_notion_token() -> str | None:
+    """Get the Notion integration token from environment or stored credentials."""
+    env_token = os.environ.get("NOTION_TOKEN")
+    if env_token:
+        return env_token
+    creds = load_credentials()
+    return creds.notion_token if creds else None
+
+
+def get_notion_page_id() -> str | None:
+    """Get the Notion parent page ID from environment or stored credentials."""
+    env_page = os.environ.get("NOTION_PAGE_ID")
+    if env_page:
+        return env_page
+    creds = load_credentials()
+    return creds.notion_page_id if creds else None
 
 
 async def validate_license(license_key: str, api_url: str | None = None) -> LicenseInfo:

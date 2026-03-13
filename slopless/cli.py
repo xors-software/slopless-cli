@@ -36,11 +36,19 @@ from slopless.config import (
     get_api_url,
     get_auth_headers,
     get_license_key,
+    get_notion_page_id,
+    get_notion_token,
     load_credentials,
     mask_license_key,
     save_credentials,
     validate_license,
 )
+from slopless.notion import (
+    NotionAuthError,
+    NotionPageNotFoundError,
+    export_findings_to_notion,
+)
+from slopless.latex import export_findings_to_latex
 
 console = Console()
 
@@ -268,13 +276,62 @@ def whoami() -> None:
 
 
 # =============================================================================
+# Notion Setup
+# =============================================================================
+
+
+@cli.command("notion-setup")
+@click.option("--token", prompt="Notion integration token", help="Notion internal integration token")
+@click.option(
+    "--page-id",
+    prompt="Notion parent page ID",
+    help="ID of the Notion page where audit databases will be created",
+)
+def notion_setup(token: str, page_id: str) -> None:
+    """Configure Notion integration for exporting scan findings.
+
+    You need a Notion internal integration token and a parent page ID.
+
+    1. Create an integration at https://www.notion.so/my-integrations
+    2. Copy the integration token (starts with ntn_ or secret_)
+    3. Share your target Notion page with the integration
+    4. Copy the page ID from the page URL (the 32-char hex string)
+
+    Examples:
+        slopless notion-setup
+        slopless notion-setup --token ntn_xxx --page-id abc123def456
+    """
+    # Strip whitespace and normalize page ID (remove hyphens if pasted with them)
+    token = token.strip()
+    page_id = page_id.strip().replace("-", "")
+
+    # Load existing credentials or create new ones
+    creds = load_credentials()
+    if creds:
+        creds.notion_token = token
+        creds.notion_page_id = page_id
+    else:
+        console.print("[yellow]No slopless credentials found. Run 'slopless login' first.[/yellow]")
+        console.print("[dim]Notion credentials require an active slopless login.[/dim]")
+        return
+
+    save_credentials(creds)
+    console.print("[green]✓[/green] Notion credentials saved")
+    console.print(f"  Token: {token[:8]}...{token[-4:]}")
+    console.print(f"  Page ID: {page_id}")
+    console.print()
+    console.print("[dim]Use --notion flag with scan to export findings:[/dim]")
+    console.print("[dim]  slopless scan . --notion[/dim]")
+
+
+# =============================================================================
 # Scan Commands
 # =============================================================================
 
 
 @cli.command()
 @click.argument("target", default=".")
-@click.option("--auto-fix/--no-fix", default=True, help="Generate fixes for vulnerabilities")
+@click.option("--auto-fix/--no-fix", default=False, help="Generate fixes for vulnerabilities")
 @click.option("--cross-validate/--no-validate", default=True, help="Cross-validate HIGH/CRITICAL findings")
 @click.option("--parallel", default=3, help="Number of parallel fix candidates")
 @click.option("--polish", is_flag=True, help="Run polish agent after security scan")
@@ -286,6 +343,27 @@ def whoami() -> None:
     default="rich",
     help="Output format",
 )
+@click.option("--notion", is_flag=True, help="Export findings to a Notion database after scan")
+@click.option(
+    "--notion-page",
+    envvar="NOTION_PAGE_ID",
+    default=None,
+    help="Notion parent page ID (or set NOTION_PAGE_ID env var)",
+)
+@click.option("--multi-engine", is_flag=True, help="Run Claude + GPT supplementary scan passes for better coverage")
+@click.option("--local", is_flag=True, help="Run scan locally using slopless-engine (no API, requires engine installed)")
+@click.option("--latex", is_flag=True, help="Export findings to a LaTeX audit report after scan")
+@click.option(
+    "--latex-output",
+    default=None,
+    help="Output path for LaTeX report (.tex file or directory)",
+)
+@click.option(
+    "--latex-template",
+    envvar="SLOPLESS_LATEX_TEMPLATE_DIR",
+    default=None,
+    help="Path to LaTeX template directory (or set SLOPLESS_LATEX_TEMPLATE_DIR env var)",
+)
 def scan(
     target: str,
     auto_fix: bool,
@@ -294,6 +372,13 @@ def scan(
     polish: bool,
     output: str | None,
     output_format: str,
+    multi_engine: bool,
+    local: bool,
+    notion: bool,
+    notion_page: str | None,
+    latex: bool,
+    latex_output: str | None,
+    latex_template: str | None,
 ) -> None:
     """Scan a repository for security vulnerabilities.
 
@@ -310,8 +395,36 @@ def scan(
         slopless scan owner/repo                   # Scan GitHub repo
         slopless scan . --output report.json       # Save report
         slopless scan . --polish                   # Run polish after security
+        slopless scan . --multi-engine             # Run multi-engine scan (Claude + GPT)
+        slopless scan . --local                    # Run locally (no API, same as unslop scan)
+        slopless scan . --local --multi-engine     # Local multi-engine scan
+        slopless scan . --notion                   # Export findings to Notion
+        slopless scan . --notion --notion-page abc123  # Specify Notion page
+        slopless scan . --latex                    # Export findings to LaTeX report
+        slopless scan . --latex --latex-output ./my-report.tex  # Custom output path
     """
-    # Check authentication
+    # Local mode — run engine directly in-process (same as `uv run unslop scan`)
+    if local:
+        asyncio.run(
+            _run_scan_local(
+                target,
+                auto_fix,
+                cross_validate,
+                parallel,
+                polish,
+                output,
+                output_format,
+                multi_engine=multi_engine,
+                notion=notion,
+                notion_page=notion_page,
+                latex=latex,
+                latex_output=latex_output,
+                latex_template=latex_template,
+            )
+        )
+        return
+
+    # Check authentication for API mode
     license_key = get_license_key()
     if not license_key:
         console.print("[red]✗[/red] Not logged in")
@@ -328,6 +441,12 @@ def scan(
             polish,
             output,
             output_format,
+            multi_engine=multi_engine,
+            notion=notion,
+            notion_page=notion_page,
+            latex=latex,
+            latex_output=latex_output,
+            latex_template=latex_template,
         )
     )
 
@@ -1740,6 +1859,155 @@ def _git_push(set_upstream: bool = False) -> bool:
 # =============================================================================
 
 
+async def _run_scan_local(
+    target: str,
+    auto_fix: bool,
+    cross_validate: bool,
+    parallel: int,
+    polish: bool,
+    output: str | None,
+    output_format: str,
+    multi_engine: bool = False,
+    notion: bool = False,
+    notion_page: str | None = None,
+    latex: bool = False,
+    latex_output: str | None = None,
+    latex_template: str | None = None,
+) -> None:
+    """Run scan directly using the slopless-engine in-process (no API).
+
+    This gives the same behavior as `uv run unslop scan` — faster, with
+    real-time logs, post-processing, and no zip/upload overhead.
+    """
+    try:
+        from unslop.core.digester import digest_codebase
+        from unslop.services.security import ScanConfig, SecurityService
+    except ImportError:
+        console.print("[red]✗[/red] slopless-engine is not installed")
+        console.print("[dim]Install it with: pip install -e ../slopless-engine[/dim]")
+        console.print("[dim]Or run without --local to use the hosted API[/dim]")
+        return
+
+    local_path = Path(target).resolve()
+    if not local_path.exists():
+        console.print(f"[red]✗[/red] Path not found: {target}")
+        return
+
+    console.print(f"[dim]Mode: local (in-process engine)[/dim]")
+    console.print(f"[bold]🛡️ Scanning:[/bold] {local_path}")
+    console.print(f"[dim]Agents: SecurityAgent{' + CodingAgent' if auto_fix else ''}{' + PolishAgent' if polish else ''}{' + MultiEngine' if multi_engine else ''}[/dim]")
+
+    # Digest codebase
+    console.print("[dim]Digesting codebase...[/dim]")
+    try:
+        digest = await digest_codebase(local_path)
+        console.print(f"[dim]Digested {digest.total_files} files ({digest.total_lines:,} lines)[/dim]")
+    except Exception as e:
+        console.print(f"[yellow]Warning: Digest failed ({e}), falling back to tool-based analysis[/yellow]")
+        digest = None
+
+    config = ScanConfig(
+        auto_fix=auto_fix,
+        cross_validate=cross_validate,
+        parallel_candidates=parallel,
+        digest=digest,
+        multi_engine=multi_engine,
+    )
+
+    if multi_engine:
+        console.print("[bold cyan]Multi-engine mode:[/bold cyan] Running Claude + GPT supplementary passes")
+
+    service = SecurityService(local_path)
+    result = await service.scan(config)
+
+    if not result.agents_run:
+        console.print("[yellow]⚠ No agents selected to run[/yellow]")
+        return
+
+    # Load vulnerability report from artifacts
+    import json
+
+    vuln_files = list(local_path.glob(".unslop/artifacts/*/security-agent/vulnerabilities.json"))
+    if not vuln_files:
+        console.print("[yellow]No vulnerabilities artifact found.[/yellow]")
+        return
+
+    latest = max(vuln_files, key=lambda f: f.stat().st_mtime)
+    vulnerabilities = json.loads(latest.read_text())
+    vulns = vulnerabilities.get("vulnerabilities", [])
+    summary = vulnerabilities.get("summary", {})
+
+    # Post-process findings (same as unslop scan does)
+    if vulns:
+        try:
+            from unslop.services.finding_postprocessor import postprocess_findings
+
+            console.print("[dim]Post-processing findings...[/dim]")
+            vulns, pp_stats = postprocess_findings(vulns)
+            pp = pp_stats.summary()
+            console.print(
+                f"[dim]  {pp['input']} raw → {pp['final']} final "
+                f"(deduped {pp['duplicates_removed']}, "
+                f"filtered {pp['filtered']}, "
+                f"enriched {pp['enriched']})[/dim]"
+            )
+            # Recalculate summary
+            by_sev: dict[str, int] = {}
+            for v in vulns:
+                s = v.get("severity", "medium").lower()
+                by_sev[s] = by_sev.get(s, 0) + 1
+            summary["total"] = len(vulns)
+            summary["by_severity"] = by_sev
+        except ImportError:
+            pass
+
+    # Save to file if requested
+    if output:
+        output_path = Path(output)
+        output_path.write_text(json.dumps({"vulnerabilities": vulns, "summary": summary}, indent=2))
+        console.print(f"[green]✓[/green] Report saved to: {output_path}")
+        console.print()
+
+    # Display based on format
+    if output_format == "json":
+        console.print(json.dumps({"vulnerabilities": vulns, "summary": summary}, indent=2))
+    elif output_format == "markdown":
+        _print_markdown_report(vulns, summary)
+    else:
+        _print_rich_report(vulns, summary)
+
+    # Export to Notion if requested
+    if notion and vulns:
+        console.print()
+        try:
+            db_url = await export_findings_to_notion(
+                vulns,
+                token=get_notion_token(),
+                page_id=notion_page or get_notion_page_id(),
+            )
+            console.print(f"[green]✓[/green] Notion database created: {db_url}")
+        except Exception as e:
+            console.print(f"[red]✗[/red] Notion export failed: {e}")
+    elif notion and not vulns:
+        console.print("[dim]No findings to export to Notion.[/dim]")
+
+    # Export to LaTeX if requested
+    if latex and vulns:
+        console.print()
+        try:
+            tex_path = export_findings_to_latex(
+                vulns,
+                output_path=latex_output,
+                template_dir=latex_template,
+                project_name=target,
+            )
+            console.print(f"[green]✓[/green] LaTeX report generated: {tex_path}")
+        except Exception as e:
+            console.print(f"[red]✗[/red] LaTeX export failed: {e}")
+    elif latex and not vulns:
+        console.print("[dim]No findings to export to LaTeX.[/dim]")
+
+
 async def _run_scan(
     target: str,
     auto_fix: bool,
@@ -1748,6 +2016,12 @@ async def _run_scan(
     polish: bool,
     output: str | None,
     output_format: str,
+    multi_engine: bool = False,
+    notion: bool = False,
+    notion_page: str | None = None,
+    latex: bool = False,
+    latex_output: str | None = None,
+    latex_template: str | None = None,
 ) -> None:
     """Execute the scan via the hosted API using unified agents."""
     # Determine if target is a GitHub repo
@@ -1769,18 +2043,22 @@ async def _run_scan(
     api_url = get_api_url()
     headers = get_auth_headers()
 
+    # Show which API the CLI is connecting to
+    console.print(f"[dim]API: {api_url}[/dim]")
+
     # Build unified scan options
     scan_options = {
         "auto_fix": auto_fix,
         "cross_validate": cross_validate,
         "parallel_candidates": parallel,
-        "polish": polish,
+        "run_polish": polish,
+        "multi_engine": multi_engine,
     }
 
     if github_repo:
         # Scan GitHub repo via API
         console.print(f"[bold]🛡️ Scanning:[/bold] {github_repo}")
-        console.print(f"[dim]Agents: SecurityAgent{' + CodingAgent' if auto_fix else ''}{' + PolishAgent' if polish else ''}[/dim]")
+        console.print(f"[dim]Agents: SecurityAgent{' + CodingAgent' if auto_fix else ''}{' + PolishAgent' if polish else ''}{' + MultiEngine' if multi_engine else ''}[/dim]")
         result = await _scan_github_repo(api_url, headers, github_repo, scan_options)
     else:
         # Scan local path via upload
@@ -1790,7 +2068,7 @@ async def _run_scan(
             return
 
         console.print(f"[bold]🛡️ Scanning:[/bold] {local_path.resolve()}")
-        console.print(f"[dim]Agents: SecurityAgent{' + CodingAgent' if auto_fix else ''}{' + PolishAgent' if polish else ''}[/dim]")
+        console.print(f"[dim]Agents: SecurityAgent{' + CodingAgent' if auto_fix else ''}{' + PolishAgent' if polish else ''}{' + MultiEngine' if multi_engine else ''}[/dim]")
         result = await _scan_local_path(api_url, headers, local_path, scan_options)
 
     if not result:
@@ -1819,6 +2097,41 @@ async def _run_scan(
     else:
         _print_rich_report(vulns, summary)
 
+    # Export to Notion if requested
+    if notion and vulns:
+        console.print()
+        try:
+            db_url = await export_findings_to_notion(
+                vulns,
+                token=get_notion_token(),
+                page_id=notion_page or get_notion_page_id(),
+            )
+            console.print(f"[green]✓[/green] Notion database created: {db_url}")
+        except NotionAuthError as e:
+            console.print(f"[red]✗[/red] {e}")
+        except NotionPageNotFoundError as e:
+            console.print(f"[red]✗[/red] {e}")
+        except Exception as e:
+            console.print(f"[red]✗[/red] Notion export failed: {e}")
+    elif notion and not vulns:
+        console.print("[dim]No findings to export to Notion.[/dim]")
+
+    # Export to LaTeX if requested
+    if latex and vulns:
+        console.print()
+        try:
+            tex_path = export_findings_to_latex(
+                vulns,
+                output_path=latex_output,
+                template_dir=latex_template,
+                project_name=target,
+            )
+            console.print(f"[green]✓[/green] LaTeX report generated: {tex_path}")
+        except Exception as e:
+            console.print(f"[red]✗[/red] LaTeX export failed: {e}")
+    elif latex and not vulns:
+        console.print("[dim]No findings to export to LaTeX.[/dim]")
+
 
 async def _scan_github_repo(
     api_url: str,
@@ -1828,7 +2141,8 @@ async def _scan_github_repo(
 ) -> dict | None:
     """Scan a GitHub repository via the unified API."""
     try:
-        async with httpx.AsyncClient(timeout=300.0) as client:
+        scan_timeout = 900.0 if scan_options.get("multi_engine") else 600.0
+        async with httpx.AsyncClient(timeout=scan_timeout) as client:
             with console.status("[bold blue]Running SecurityAgent...[/bold blue]"):
                 response = await client.post(
                     f"{api_url}/v1/proxy/scan/github",
@@ -1874,7 +2188,8 @@ async def _scan_local_path(
         return None
 
     try:
-        async with httpx.AsyncClient(timeout=300.0) as client:
+        scan_timeout = 900.0 if scan_options.get("multi_engine") else 600.0
+        async with httpx.AsyncClient(timeout=scan_timeout) as client:
             with console.status("[bold blue]Running SecurityAgent...[/bold blue]"):
                 response = await client.post(
                     f"{api_url}/v1/proxy/scan/upload",
@@ -1883,7 +2198,8 @@ async def _scan_local_path(
                         "auto_fix": str(scan_options.get("auto_fix", True)).lower(),
                         "cross_validate": str(scan_options.get("cross_validate", True)).lower(),
                         "parallel_candidates": str(scan_options.get("parallel_candidates", 3)),
-                        "polish": str(scan_options.get("polish", False)).lower(),
+                        "run_polish": str(scan_options.get("run_polish", False)).lower(),
+                        "multi_engine": str(scan_options.get("multi_engine", False)).lower(),
                     },
                     headers=headers,
                 )
