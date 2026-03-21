@@ -42,6 +42,7 @@ cat > "$ZEROCLAW_DIR/config.toml" << TOML
 default_provider = "anthropic"
 default_model = "${ZEROCLAW_MODEL:-claude-sonnet-4-20250514}"
 default_temperature = 0.7
+model_support_vision = true
 
 [autonomy]
 level = "supervised"
@@ -119,6 +120,11 @@ allowed_domains = [
 enabled = true
 allowed_domains = ["*"]
 
+[multimodal]
+max_images = 4
+max_image_size_mb = 10
+allow_remote_fetch = false
+
 [heartbeat]
 enabled = ${HEARTBEAT_ENABLED:-false}
 interval_minutes = ${HEARTBEAT_INTERVAL:-60}
@@ -157,6 +163,7 @@ I help teams:
 - Track and adopt existing workstreams
 - Take in feature requests and generate specs + PRs end-to-end
 - Read and write to Notion, ClickUp, and GitHub issues
+- Accept and analyze images (screenshots, architecture diagrams, error messages, UI mockups) sent via Telegram
 EOF
 
 echo -e "${GREEN}  ✓${NC} Identity configured"

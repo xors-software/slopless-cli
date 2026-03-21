@@ -73,6 +73,29 @@ else
   warn "brain.db not found — credentials will load from env vars at runtime"
 fi
 
+# Ensure vision / multimodal support is enabled in local config
+ZEROCLAW_CONFIG="$ZEROCLAW_DIR/config.toml"
+if [ -f "$ZEROCLAW_CONFIG" ]; then
+  if ! grep -q '^\[multimodal\]' "$ZEROCLAW_CONFIG" 2>/dev/null; then
+    cat >> "$ZEROCLAW_CONFIG" << 'VISION'
+
+[multimodal]
+max_images = 4
+max_image_size_mb = 10
+allow_remote_fetch = false
+VISION
+    ok "Multimodal vision config added"
+  fi
+
+  if ! grep -q 'model_support_vision' "$ZEROCLAW_CONFIG" 2>/dev/null; then
+    sed -i.bak '/^default_temperature/a\
+model_support_vision = true' "$ZEROCLAW_CONFIG" && rm -f "$ZEROCLAW_CONFIG.bak"
+    ok "Vision support enabled for provider"
+  fi
+else
+  warn "Config not found at $ZEROCLAW_CONFIG — run ./setup.sh first"
+fi
+
 echo ""
 echo -e "${GREEN}  ✓${NC} Starting daemon..."
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"

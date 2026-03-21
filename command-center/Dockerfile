@@ -4,11 +4,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl ca-certificates git gpg gnupg2 python3 python3-pip sqlite3 jq \
     && rm -rf /var/lib/apt/lists/*
 
-# Install ZeroClaw from pre-built release
-RUN curl -fsSLO https://github.com/zeroclaw-labs/zeroclaw/releases/latest/download/zeroclaw-x86_64-unknown-linux-gnu.tar.gz \
-    && tar xzf zeroclaw-x86_64-unknown-linux-gnu.tar.gz \
-    && install -m 0755 zeroclaw /usr/local/bin/zeroclaw \
-    && rm -f zeroclaw-x86_64-unknown-linux-gnu.tar.gz zeroclaw
+# Install ZeroClaw — resolve latest release with binary assets via GitHub API,
+# falling back to the install script if the API query fails.
+RUN ASSET_URL=$(curl -sL "https://api.github.com/repos/zeroclaw-labs/zeroclaw/releases" \
+      | python3 -c "import json,sys; releases=json.load(sys.stdin); \
+        urls=[a['browser_download_url'] for r in releases for a in r.get('assets',[]) \
+              if a['name']=='zeroclaw-x86_64-unknown-linux-gnu.tar.gz']; \
+        print(urls[0] if urls else '')") \
+    && if [ -n "$ASSET_URL" ]; then \
+         curl -fsSL -o zeroclaw.tar.gz "$ASSET_URL" \
+         && tar xzf zeroclaw.tar.gz \
+         && install -m 0755 zeroclaw /usr/local/bin/zeroclaw \
+         && rm -f zeroclaw.tar.gz zeroclaw; \
+       else \
+         curl -fsSL https://raw.githubusercontent.com/zeroclaw-labs/zeroclaw/main/install.sh | bash; \
+       fi
 
 # Install GitHub CLI
 RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \

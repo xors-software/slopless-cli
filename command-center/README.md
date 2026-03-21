@@ -42,6 +42,7 @@ The command center gives you a "Jarvis" for code quality:
 | Adopt existing PR | "adopt https://github.com/org/repo/pull/42" |
 | List my PRs | "what PRs do I have open?" |
 | Check status | "status" |
+| Send an image | Send a screenshot, diagram, or error as a photo with a message |
 
 ## Skills
 
@@ -78,6 +79,17 @@ command-center/
   workspace/        # Ephemeral working dirs (gitignored)
   state/            # ZeroClaw state (gitignored)
 ```
+
+## Image Support
+
+Send images directly to the bot via Telegram — screenshots, architecture diagrams, error messages, UI mockups, etc. The bot uses Claude's vision capabilities to analyze them.
+
+- **Send as Photo** (preferred): Telegram compresses and routes it through the vision pipeline automatically
+- **Send as Document**: Image-extension files (`.jpg`, `.png`, `.webp`, `.gif`) are also routed through vision
+- **Limits**: Up to 4 images per message, 10 MB per image
+- **Supported formats**: JPEG, PNG, WebP, GIF
+
+Pair an image with a text message for best results, e.g. send a screenshot with "what's wrong with this error?" or an architecture diagram with "implement this".
 
 ## Prerequisites
 
