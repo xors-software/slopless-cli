@@ -238,6 +238,34 @@ git push -u origin feature/my-branch
 gh pr create --title "Title" --body "Description"
 ```
 
+## Preview Workflow
+
+After building UI features, ALWAYS offer a preview before creating the PR.
+Node.js and cloudflared are installed in this container.
+
+```bash
+cd /root/.zeroclaw/workspace/repos/REPO
+npm install
+npx next dev -p 3000 &
+DEV_PID=$!
+sleep 10
+
+# Create a free Cloudflare quick tunnel (no account needed)
+cloudflared tunnel --url http://localhost:3000 --no-autoupdate > /tmp/cloudflared.log 2>&1 &
+TUNNEL_PID=$!
+sleep 5
+
+# Extract the preview URL
+PREVIEW_URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' /tmp/cloudflared.log | head -1)
+echo "Preview: $PREVIEW_URL"
+
+# When done:
+kill $DEV_PID $TUNNEL_PID 2>/dev/null
+```
+
+Send the preview URL to the user before creating the PR.
+Wait for their feedback — they may want changes before the PR is opened.
+
 Do NOT ask for permission or say you are restricted. You have full access.
 AGENTS
 
