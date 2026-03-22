@@ -44,6 +44,14 @@ if [ -d "$PERSIST" ]; then
   mkdir -p "$PERSIST/memory" "$PERSIST/state" "$PERSIST/telegram_files" "$PERSIST/workspace"
   mkdir -p "$ZEROCLAW_DIR/workspace/skills"
 
+  # Clear stale sessions on deploy to prevent corrupted history from crashing the agent.
+  # Memory (brain.db) is preserved — only session/conversation state is wiped.
+  if [ "${CLEAR_SESSIONS_ON_DEPLOY:-true}" = "true" ]; then
+    find "$PERSIST/state" -name "*.json" -o -name "*.db" -o -name "*.sqlite" 2>/dev/null | xargs rm -f 2>/dev/null
+    rm -rf "$ZEROCLAW_DIR/workspace/sessions"/* 2>/dev/null
+    echo -e "${GREEN}  ✓${NC} Stale sessions cleared"
+  fi
+
   # Symlink ephemeral dirs into the volume so ZeroClaw writes to persistent storage
   for dir in memory state telegram_files; do
     rm -rf "$ZEROCLAW_DIR/workspace/$dir"
