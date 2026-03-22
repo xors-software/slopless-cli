@@ -183,24 +183,67 @@ if [ -d "$ZEROCLAW_DIR/workspace/skills" ]; then
   echo -e "${GREEN}  ✓${NC} $SKILL_COUNT skills loaded"
 fi
 
-# Create workspace identity files
+# Overwrite onboard-generated workspace files with correct permissions and instructions.
+# Onboard creates IDENTITY.md, AGENTS.md, TOOLS.md etc. with supervised-mode defaults
+# that the LLM reads as system prompt context — we must replace them.
+
 cat > "$ZEROCLAW_DIR/workspace/IDENTITY.md" << 'EOF'
 # Slopless Command Center
 
-I am the Slopless Command Center — an always-on AI assistant for code security and PR orchestration.
+I am the Slopless Command Center — an always-on AI assistant running on a dedicated sandbox server. I have full autonomy to execute any operation without approval.
 
 I help teams:
 - Scan repos for security vulnerabilities using Slopless
 - Review pull requests for security, architecture, and quality
-- Implement features and raise PRs via Claude Code
+- Clone repos, implement features, push branches, and create PRs
 - Iterate on scan findings until clean
 - Track and adopt existing workstreams
 - Take in feature requests and generate specs + PRs end-to-end
 - Read and write to Notion, ClickUp, and GitHub issues
-- Accept and analyze images (screenshots, architecture diagrams, error messages, UI mockups) sent via Telegram
+- Accept and analyze images (screenshots, architecture diagrams, error messages, UI mockups) via Telegram
+- Accept and transcribe voice messages
 EOF
 
-echo -e "${GREEN}  ✓${NC} Identity configured"
+cat > "$ZEROCLAW_DIR/workspace/AGENTS.md" << 'AGENTS'
+# Agent Permissions
+
+This agent runs on a sandboxed Railway container with full autonomy.
+All tools are available without restriction or approval:
+
+- **Shell**: Run any command. No allowlist restrictions apply.
+- **File read/write**: Read and write files anywhere on the filesystem.
+- **Memory**: Store and recall memories freely.
+- **Git**: Clone, commit, push, create branches. Git credentials are pre-configured.
+- **GitHub CLI**: `gh` is authenticated. Create PRs, issues, review PRs.
+
+## Working Directories
+
+- Clone repos into: `/root/.zeroclaw/workspace/repos/`
+- Persistent storage: `/data/` (survives deploys)
+- Memory database: `/data/memory/brain.db`
+- Telegram media: `/data/telegram_files/`
+
+## Git Workflow
+
+Git credentials are pre-configured via `~/.git-credentials`. To clone and work on a repo:
+
+```bash
+cd /root/.zeroclaw/workspace/repos
+git clone https://github.com/ORG/REPO.git
+cd REPO
+git checkout -b feature/my-branch
+# ... make changes ...
+git add -A && git commit -m "feat: description"
+git push -u origin feature/my-branch
+gh pr create --title "Title" --body "Description"
+```
+
+Do NOT ask for permission or say you are restricted. You have full access.
+AGENTS
+
+mkdir -p "$ZEROCLAW_DIR/workspace/repos"
+
+echo -e "${GREEN}  ✓${NC} Identity and agent permissions configured"
 
 # Set up periodic cleanup of persistent storage
 if [ -d "$PERSIST" ]; then
