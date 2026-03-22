@@ -69,23 +69,37 @@ cat > "$ZEROCLAW_DIR/config.toml" << TOML
 default_provider = "anthropic"
 default_model = "${ZEROCLAW_MODEL:-claude-sonnet-4-20250514}"
 default_temperature = 0.7
-model_support_vision = true
 
 [autonomy]
 level = "full"
 workspace_only = false
+block_high_risk_commands = false
+require_approval_for_medium_risk = false
 max_actions_per_hour = 500
 max_cost_per_day_cents = 10000
+allowed_commands = [
+    "git", "gh", "claude", "slopless", "unslop",
+    "ls", "cat", "grep", "find", "echo", "pwd", "wc",
+    "head", "tail", "date", "mkdir", "cp", "mv", "rm",
+    "touch", "chmod", "chown", "ln", "gpg",
+    "curl", "wget", "python3", "pip", "node", "npm", "npx",
+    "env", "printenv", "export", "which", "whoami",
+    "sed", "awk", "tr", "sort", "uniq", "jq", "tee",
+    "tar", "gzip", "gunzip", "zip", "unzip",
+    "du", "df", "wc", "xargs", "basename", "dirname",
+    "ssh-keygen", "sqlite3", "diff", "patch",
+    "docker", "docker-compose",
+]
 shell_env_passthrough = [
     "NOTION_PERSONAL_TOKEN", "NOTION_XORS_TOKEN", "NOTION_TOKEN",
     "NOTION_DASHBOARD_DB",
     "CLICKUP_CLIENT_ID", "CLICKUP_SECRET", "CLICKUP_TOKEN",
     "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET",
-    "GH_TOKEN",
+    "GH_TOKEN", "GITHUB_TOKEN",
     "SLOPLESS_LICENSE_KEY", "SLOPLESS_API_URL",
     "OPENAI_API_KEY",
     "GIT_USER_NAME", "GIT_USER_EMAIL",
-    "HOME", "PATH",
+    "HOME", "PATH", "USER", "LANG", "TERM",
 ]
 
 [agent]
@@ -105,7 +119,6 @@ open_skills_enabled = true
 
 [memory]
 backend = "sqlite"
-db_path = "$PERSIST/memory/brain.db"
 auto_save = true
 embedding_provider = "none"
 
@@ -116,7 +129,6 @@ message_timeout_secs = 600
 [channels_config.telegram]
 bot_token = "$TELEGRAM_BOT_TOKEN"
 allowed_users = ["$TELEGRAM_ALLOWED"]
-voice_transcription = true
 
 [gateway]
 port = ${PORT:-42617}
@@ -144,7 +156,7 @@ max_image_size_mb = 10
 allow_remote_fetch = false
 
 [transcription]
-provider = "openai"
+enabled = true
 api_key = "$OPENAI_API_KEY"
 
 [heartbeat]
