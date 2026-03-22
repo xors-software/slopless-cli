@@ -103,7 +103,7 @@ shell_env_passthrough = [
 ]
 
 [agent]
-compact_context = false
+compact_context = true
 max_tool_iterations = 200
 max_history_messages = 200
 parallel_tools = true
