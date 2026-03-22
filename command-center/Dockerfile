@@ -4,16 +4,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl ca-certificates git gpg gnupg2 python3 python3-pip sqlite3 jq \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Node.js (needed to run dev servers for preview)
-RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
-    && apt-get install -y --no-install-recommends nodejs \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install cloudflared for preview tunnels (free, no account needed)
-RUN curl -fsSL -o cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
-    && install -m 0755 cloudflared /usr/local/bin/cloudflared \
-    && rm -f cloudflared
-
 # Install ZeroClaw — resolve latest release with binary assets via GitHub API,
 # falling back to the install script if the API query fails.
 RUN ASSET_URL=$(curl -sL "https://api.github.com/repos/zeroclaw-labs/zeroclaw/releases" \

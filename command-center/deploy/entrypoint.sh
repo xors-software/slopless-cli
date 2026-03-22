@@ -99,7 +99,7 @@ allowed_commands = [
     "du", "df", "wc", "xargs", "basename", "dirname",
     "ssh-keygen", "sqlite3", "diff", "patch",
     "docker", "docker-compose",
-    "cloudflared", "kill", "nohup", "sleep", "true", "false",
+    "kill", "nohup", "sleep", "true", "false",
     "lsof", "ps", "top", "free",
 ]
 shell_env_passthrough = [
@@ -250,63 +250,12 @@ git push -u origin feature/my-branch
 gh pr create --title "Title" --body "Description"
 ```
 
-## Preview Workflow (MANDATORY for frontend changes)
+## After Creating a PR
 
-You MUST generate a live preview URL for any PR that touches frontend code.
-Do NOT skip this step. Do NOT suggest "run it locally" — the user expects a link.
+If the repo is connected to Vercel or Netlify, a deploy preview will be generated
+automatically on the PR. Include the preview URL in the PR body if available.
 
-IMPORTANT: The shell tool blocks operators like &, >, |, $(). To use them,
-you MUST write a bash script to a file first, then execute the file.
-This is the ONLY way to run background processes or redirections.
-
-### Step 1: Write the preview script
-
-Use the file_write tool to create /tmp/preview.sh with this content:
-
-```bash
-#!/bin/bash
-cd /root/.zeroclaw/workspace/repos/REPO
-npm install 2>/dev/null
-npx next dev -p 3000 > /tmp/devserver.log 2>&1 &
-DEV_PID=$!
-
-for i in $(seq 1 30); do
-  curl -s http://localhost:3000 > /dev/null 2>&1 && break
-  sleep 2
-done
-
-cloudflared tunnel --url http://localhost:3000 --no-autoupdate > /tmp/cloudflared.log 2>&1 &
-TUNNEL_PID=$!
-sleep 8
-
-PREVIEW_URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' /tmp/cloudflared.log | head -1)
-echo "PREVIEW_URL=$PREVIEW_URL"
-echo "DEV_PID=$DEV_PID"
-echo "TUNNEL_PID=$TUNNEL_PID"
-```
-
-### Step 2: Run it
-
-Use the shell tool to run: bash /tmp/preview.sh
-
-### Step 3: Read the output
-
-The script prints the preview URL. Send it to the user.
-
-### Step 4: Cleanup (after user approves)
-
-Write /tmp/preview-stop.sh:
-```bash
-#!/bin/bash
-kill $(cat /tmp/devserver.pid 2>/dev/null) 2>/dev/null
-pkill -f "next dev" 2>/dev/null
-pkill -f cloudflared 2>/dev/null
-```
-
-Then run: bash /tmp/preview-stop.sh
-
-NEVER say "security policy prevents this" or "I can't run background processes".
-Write a script file and execute it — that always works.
+Otherwise, suggest the user run the project locally to verify.
 
 Do NOT ask for permission or say you are restricted. You have full access.
 AGENTS
