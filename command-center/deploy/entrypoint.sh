@@ -27,7 +27,25 @@ fi
 
 # Bootstrap workspace structure first (onboard will create defaults)
 ZEROCLAW_DIR="$HOME/.zeroclaw"
-mkdir -p "$ZEROCLAW_DIR/workspace/skills" "$ZEROCLAW_DIR/workspace/state"
+PERSIST="${RAILWAY_VOLUME_MOUNT_PATH:-/data}"
+
+if [ -d "$PERSIST" ]; then
+  echo -e "${GREEN}  ✓${NC} Persistent volume detected at $PERSIST"
+
+  mkdir -p "$PERSIST/memory" "$PERSIST/state" "$PERSIST/telegram_files" "$PERSIST/workspace"
+  mkdir -p "$ZEROCLAW_DIR/workspace/skills"
+
+  # Symlink ephemeral dirs into the volume so ZeroClaw writes to persistent storage
+  for dir in memory state telegram_files; do
+    rm -rf "$ZEROCLAW_DIR/workspace/$dir"
+    ln -sfn "$PERSIST/$dir" "$ZEROCLAW_DIR/workspace/$dir"
+  done
+
+  echo -e "${GREEN}  ✓${NC} Memory, state, and media linked to persistent volume"
+else
+  echo -e "${YELLOW}  !${NC} No persistent volume at $PERSIST — data will not survive deploys"
+  mkdir -p "$ZEROCLAW_DIR/workspace/skills" "$ZEROCLAW_DIR/workspace/state"
+fi
 
 echo -e "  ${CYAN}→${NC} Running zeroclaw onboard..."
 zeroclaw onboard \
@@ -55,7 +73,7 @@ allowed_commands = [
     "sed", "tr", "sort", "jq",
 ]
 forbidden_paths = ["/etc/shadow", "/proc", "/sys", "/boot", "/dev"]
-allowed_roots = ["/app", "/tmp", "/root"]
+allowed_roots = ["/app", "/tmp", "/root", "$PERSIST"]
 max_actions_per_hour = 200
 max_cost_per_day_cents = 5000
 shell_env_passthrough = [
@@ -86,6 +104,7 @@ open_skills_enabled = true
 
 [memory]
 backend = "sqlite"
+db_path = "$PERSIST/memory/brain.db"
 auto_save = true
 embedding_provider = "none"
 
@@ -174,6 +193,37 @@ EOF
 
 echo -e "${GREEN}  ✓${NC} Identity configured"
 
+# Set up periodic cleanup of persistent storage
+if [ -d "$PERSIST" ]; then
+  mkdir -p "$ZEROCLAW_DIR/workspace/crons"
+  cat > "$ZEROCLAW_DIR/workspace/crons/storage-cleanup.toml" << 'CRON'
+name = "storage-cleanup"
+schedule = "0 4 * * *"
+enabled = true
+
+[task]
+prompt = """
+Clean up persistent storage to prevent disk exhaustion. Run these commands:
+
+1. Delete Telegram media files older than 7 days:
+   find /data/telegram_files -type f -mtime +7 -delete 2>/dev/null
+   find /data/telegram_files -type d -empty -delete 2>/dev/null
+
+2. Delete stale workspace clones older than 3 days:
+   find /data/workspace -maxdepth 1 -type d -mtime +3 -not -name workspace -exec rm -rf {} + 2>/dev/null
+
+3. Compact the SQLite memory database:
+   sqlite3 /data/memory/brain.db "VACUUM;" 2>/dev/null
+
+4. Report what was cleaned:
+   echo "Telegram files: $(find /data/telegram_files -type f 2>/dev/null | wc -l) remaining"
+   echo "Memory DB size: $(du -sh /data/memory/brain.db 2>/dev/null | cut -f1)"
+   echo "Volume usage: $(du -sh /data 2>/dev/null | cut -f1)"
+"""
+CRON
+  echo -e "${GREEN}  ✓${NC} Storage cleanup cron configured (daily at 04:00 UTC)"
+fi
+
 # Map Railway-specific env var names to the generic names used by skills.
 # Skills reference NOTION_TOKEN / CLICKUP_TOKEN — alias them here so both
 # the seeding below and runtime shell commands resolve correctly.
@@ -185,7 +235,7 @@ export CLICKUP_TOKEN="${CLICKUP_TOKEN:-${CLICKUP_CLIENT_ID:-}}"
 # shell_env_passthrough at runtime. Guard the whole block so it never
 # prevents the daemon from starting.
 if command -v sqlite3 &>/dev/null; then
-  BRAIN_DB="$ZEROCLAW_DIR/workspace/memory/brain.db"
+  BRAIN_DB="$PERSIST/memory/brain.db"
 
   seed_credential() {
     local key="$1" token="$2" service="$3"
