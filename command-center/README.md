@@ -64,6 +64,7 @@ Shared opinionated standards in `rules/`:
 - `commit-standards.md` — Conventional commits, GPG signing, message format
 - `pr-quality.md` — PR size limits, quality gates, branch naming
 - `security-baseline.md` — Hard security rules enforced on all code
+- `code-architecture.md` — Abstraction rules: no magic values, data-driven design, component decomposition
 
 ## Directory Structure
 

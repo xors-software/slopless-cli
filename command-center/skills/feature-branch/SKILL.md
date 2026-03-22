@@ -32,11 +32,33 @@ Clone a repo, create a feature branch, spawn a Claude Code session to implement 
    git checkout -b "$BRANCH"
    ```
 
-5. **Invoke Claude Code** to implement changes:
+5. **Read the project first** before writing any code:
+   ```bash
+   # Understand the existing patterns before implementing
+   ls -la
+   cat package.json 2>/dev/null | head -30
+   find src -name "*.tsx" -o -name "*.ts" | head -20
+   # Look at an existing feature for the pattern to follow
+   ```
+
+6. **Invoke Claude Code** to implement changes:
    ```
    claude -p "You are working in this repository. Implement the following: $TASK_DESC
 
-   Rules:
+   ARCHITECTURE RULES (non-negotiable):
+   - Read existing code first and match its patterns exactly
+   - NO magic values: every literal that controls behavior must be a named constant
+   - NO monolith files: if a file would exceed 300 lines, decompose into components + lib/
+   - Data-driven: entities with multiple instances (classes, items, levels) must be typed arrays, not copy-pasted JSX
+   - Components accept props for anything that varies — hardcode nothing about parent context
+   - Type everything with interfaces — no 'any'
+   - Extract: game/business logic into lib/, UI into components/, config into constants
+   - File structure for new features:
+       page.tsx         — entry point, minimal, composes components
+       components/      — UI components with typed props
+       lib/             — logic, data, types, constants
+
+   GENERAL RULES:
    - Follow existing code patterns and conventions
    - Write clean, production-ready code
    - Add tests if the project has a test suite
@@ -45,13 +67,13 @@ Clone a repo, create a feature branch, spawn a Claude Code session to implement 
      --output-format json
    ```
 
-6. **Stage and commit**:
+7. **Stage and commit**:
    ```
    git add -A
    git commit -m "feat: <task-description-slug>"
    ```
 
-7. **Report back**:
+8. **Report back**:
    ```
    Branch Ready: <branch-name>
    ━━━━━━━━━━━━━━━━━━━━━━━━━━
