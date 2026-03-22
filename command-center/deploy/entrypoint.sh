@@ -77,7 +77,7 @@ TELEGRAM_ALLOWED="${TELEGRAM_ALLOWED_USERS:-*}"
 
 cat > "$ZEROCLAW_DIR/config.toml" << TOML
 default_provider = "anthropic"
-default_model = "${ZEROCLAW_MODEL:-claude-sonnet-4-20250514}"
+default_model = "${ZEROCLAW_MODEL:-claude-sonnet-4-5-20250929}"
 default_temperature = 0.7
 
 [autonomy]
@@ -116,8 +116,8 @@ shell_env_passthrough = [
 
 [agent]
 compact_context = true
-max_tool_iterations = 150
-max_history_messages = 80
+max_tool_iterations = 200
+max_history_messages = 120
 parallel_tools = true
 tool_dispatcher = "auto"
 
