@@ -29,7 +29,7 @@ If a spec file exists, pass it as context to Claude Code in Step 2.
 
 Report progress:
 ```
-[1/5] Implementation
+[1/6] Implementation
 ━━━━━━━━━━━━━━━━━━━
 Branch: <branch-name>
 Files changed: <count>
@@ -42,7 +42,7 @@ Status: Complete — scanning...
 
 Report progress:
 ```
-[2/5] Security Scan
+[2/6] Security Scan
 ━━━━━━━━━━━━━━━━━━━
 CRITICAL: <n>  HIGH: <n>
 MEDIUM:   <n>  LOW:  <n>
@@ -55,7 +55,7 @@ Status: <Clean | Findings detected — fixing...>
 
 Report progress:
 ```
-[3/5] Fix Iteration
+[3/6] Fix Iteration
 ━━━━━━━━━━━━━━━━━━━
 Round <n>/<max>: <fixed-count> fixed, <remaining-count> remaining
 Status: <Clean | Proceeding with N remaining>
@@ -68,19 +68,39 @@ Status: <Clean | Proceeding with N remaining>
 
 Report progress:
 ```
-[4/5] Signing
+[4/6] Signing
 ━━━━━━━━━━━━
 Commits signed: <count>
 Key: <key-id-last-8-chars>
 Status: Verified
 ```
 
-### Step 6: Create PR (invoke pr-create skill)
+### Step 6: Live Preview (invoke preview-build skill, if applicable)
+- Only for repos with a frontend (package.json with next/vite/react-scripts)
+- Start dev server + Cloudflare quick tunnel
+- Send the `.trycloudflare.com` preview URL to the user
+- Wait for user feedback before creating the PR
+- If user requests changes, iterate and re-preview
+- Kill dev server and tunnel after approval
+
+Report progress:
+```
+[5/6] Preview
+━━━━━━━━━━━━━
+🔗 <preview-url>
+
+Review the changes live.
+Reply "looks good" to create the PR, or describe what to fix.
+```
+
+Skip this step for backend-only repos or if the user explicitly asks to skip preview.
+
+### Step 7: Create PR (invoke pr-create skill)
 - Push branch to origin
 - Create PR via gh with structured body
-- Include scan results in PR body
+- Include scan results and preview URL in PR body
 
-### Step 7: Final Notification
+### Step 8: Final Notification
 ```
 PR Workflow Complete
 ━━━━━━━━━━━━━━━━━━━━━━━
@@ -89,6 +109,7 @@ Repo:      <owner/repo>
 PR:        #<number> — <title>
 Branch:    <branch> → main
 Files:     <count> changed (+<added>, -<removed>)
+Preview:   <preview-url | skipped>
 Scan:      <CLEAN | N findings>
 Signed:    <Yes | No (reason)>
 URL:       <pr-url>
@@ -100,12 +121,12 @@ Open Questions:
 Reply "adopt <pr-url>" to track this PR for ongoing iteration.
 ```
 
-### Step 8: Store in Memory
+### Step 9: Store in Memory
 Save to ZeroClaw memory:
 - Task ID, repo, branch, PR URL, scan status, timestamp
 - Open questions for future reference
 
-### Step 9: Update Source Ticket (if applicable)
+### Step 10: Update Source Ticket (if applicable)
 If the workflow was triggered from a feature request with a source ticket:
 
 - **GitHub Issue**: Comment with PR link
