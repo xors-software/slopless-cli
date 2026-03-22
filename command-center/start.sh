@@ -92,6 +92,23 @@ VISION
 model_support_vision = true' "$ZEROCLAW_CONFIG" && rm -f "$ZEROCLAW_CONFIG.bak"
     ok "Vision support enabled for provider"
   fi
+
+  if ! grep -q '^\[transcription\]' "$ZEROCLAW_CONFIG" 2>/dev/null && [ -n "${OPENAI_API_KEY:-}" ]; then
+    cat >> "$ZEROCLAW_CONFIG" << VOICE
+
+[transcription]
+provider = "openai"
+api_key = "$OPENAI_API_KEY"
+VOICE
+    ok "Voice transcription config added (OpenAI Whisper)"
+  fi
+
+  if ! grep -q 'voice_transcription' "$ZEROCLAW_CONFIG" 2>/dev/null; then
+    sed -i.bak '/^\[channels_config\.telegram\]/,/^$/{/^allowed_users/a\
+voice_transcription = true
+}' "$ZEROCLAW_CONFIG" && rm -f "$ZEROCLAW_CONFIG.bak"
+    ok "Telegram voice messages enabled"
+  fi
 else
   warn "Config not found at $ZEROCLAW_CONFIG — run ./setup.sh first"
 fi

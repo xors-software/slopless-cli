@@ -65,6 +65,7 @@ shell_env_passthrough = [
     "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET",
     "GH_TOKEN",
     "SLOPLESS_LICENSE_KEY", "SLOPLESS_API_URL",
+    "OPENAI_API_KEY",
     "HOME", "PATH",
 ]
 
@@ -95,6 +96,7 @@ message_timeout_secs = 600
 [channels_config.telegram]
 bot_token = "$TELEGRAM_BOT_TOKEN"
 allowed_users = ["$TELEGRAM_ALLOWED"]
+voice_transcription = true
 
 [gateway]
 port = ${PORT:-42617}
@@ -124,6 +126,10 @@ allowed_domains = ["*"]
 max_images = 4
 max_image_size_mb = 10
 allow_remote_fetch = false
+
+[transcription]
+provider = "openai"
+api_key = "$OPENAI_API_KEY"
 
 [heartbeat]
 enabled = ${HEARTBEAT_ENABLED:-false}
