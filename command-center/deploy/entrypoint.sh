@@ -63,17 +63,10 @@ default_temperature = 0.7
 model_support_vision = true
 
 [autonomy]
-level = "supervised"
+level = "full"
 workspace_only = false
-allowed_commands = [
-    "git", "gh", "claude", "slopless", "unslop",
-    "ls", "cat", "grep", "find", "echo", "pwd", "wc",
-    "head", "tail", "date", "mkdir", "cp", "mv", "gpg",
-    "curl", "python3", "pip", "env", "printenv",
-    "sed", "tr", "sort", "jq",
-]
-forbidden_paths = ["/etc/shadow", "/proc", "/sys", "/boot", "/dev"]
 allowed_roots = ["/app", "/tmp", "/root", "$PERSIST"]
+forbidden_paths = ["/etc/shadow", "/proc", "/sys", "/boot"]
 max_actions_per_hour = 200
 max_cost_per_day_cents = 5000
 shell_env_passthrough = [
