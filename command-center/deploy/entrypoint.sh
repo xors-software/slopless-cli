@@ -20,9 +20,18 @@ for var in ANTHROPIC_API_KEY TELEGRAM_BOT_TOKEN; do
   fi
 done
 
-# Optional: configure GitHub CLI
+# Configure GitHub CLI and git credentials
 if [ -n "${GH_TOKEN:-}" ]; then
-  echo -e "${GREEN}  ✓${NC} GH_TOKEN set — GitHub CLI authenticated"
+  echo "$GH_TOKEN" | gh auth login --with-token 2>/dev/null || true
+
+  git config --global credential.helper store
+  git config --global user.name "${GIT_USER_NAME:-slopless-bot}"
+  git config --global user.email "${GIT_USER_EMAIL:-bot@slopless.work}"
+
+  echo "https://x-access-token:${GH_TOKEN}@github.com" > "$HOME/.git-credentials"
+  chmod 600 "$HOME/.git-credentials"
+
+  echo -e "${GREEN}  ✓${NC} GitHub CLI + git credentials configured"
 fi
 
 # Bootstrap workspace structure first (onboard will create defaults)
@@ -65,10 +74,8 @@ model_support_vision = true
 [autonomy]
 level = "full"
 workspace_only = false
-allowed_roots = ["/app", "/tmp", "/root", "$PERSIST"]
-forbidden_paths = ["/etc/shadow", "/proc", "/sys", "/boot"]
-max_actions_per_hour = 200
-max_cost_per_day_cents = 5000
+max_actions_per_hour = 500
+max_cost_per_day_cents = 10000
 shell_env_passthrough = [
     "NOTION_PERSONAL_TOKEN", "NOTION_XORS_TOKEN", "NOTION_TOKEN",
     "NOTION_DASHBOARD_DB",
@@ -77,6 +84,7 @@ shell_env_passthrough = [
     "GH_TOKEN",
     "SLOPLESS_LICENSE_KEY", "SLOPLESS_API_URL",
     "OPENAI_API_KEY",
+    "GIT_USER_NAME", "GIT_USER_EMAIL",
     "HOME", "PATH",
 ]
 
@@ -124,11 +132,7 @@ encrypt = false
 
 [http_request]
 enabled = true
-allowed_domains = [
-    "api.notion.com", "api.clickup.com", "api.github.com",
-    "api.slopless.work", "api.linear.app", "slack.com",
-    "*.atlassian.net", "api.pushover.net",
-]
+allowed_domains = ["*"]
 
 [web_fetch]
 enabled = true
