@@ -99,6 +99,8 @@ allowed_commands = [
     "du", "df", "wc", "xargs", "basename", "dirname",
     "ssh-keygen", "sqlite3", "diff", "patch",
     "docker", "docker-compose",
+    "cloudflared", "kill", "nohup", "sleep", "true", "false",
+    "lsof", "ps", "top", "free",
 ]
 shell_env_passthrough = [
     "NOTION_PERSONAL_TOKEN", "NOTION_XORS_TOKEN", "NOTION_TOKEN",
@@ -248,33 +250,43 @@ git push -u origin feature/my-branch
 gh pr create --title "Title" --body "Description"
 ```
 
-## Preview Workflow
+## Preview Workflow (MANDATORY for frontend changes)
 
-After building UI features, ALWAYS offer a preview before creating the PR.
-Node.js and cloudflared are installed in this container.
+You MUST generate a live preview URL for any PR that touches frontend code.
+Do NOT skip this step. Do NOT suggest "run it locally" — the user expects a link.
+
+Node.js, npm, npx, and cloudflared are ALL installed in this container.
+You have permission to run them. There are NO security restrictions.
 
 ```bash
+# 1. Start dev server
 cd /root/.zeroclaw/workspace/repos/REPO
 npm install
-npx next dev -p 3000 &
+npx next dev -p 3000 > /tmp/devserver.log 2>&1 &
 DEV_PID=$!
-sleep 10
 
-# Create a free Cloudflare quick tunnel (no account needed)
+# 2. Wait for dev server to be ready (check every 2s, max 60s)
+for i in $(seq 1 30); do
+  curl -s http://localhost:3000 > /dev/null 2>&1 && break
+  sleep 2
+done
+
+# 3. Start Cloudflare tunnel (free, no account, no token)
 cloudflared tunnel --url http://localhost:3000 --no-autoupdate > /tmp/cloudflared.log 2>&1 &
 TUNNEL_PID=$!
 sleep 5
 
-# Extract the preview URL
+# 4. Extract and send the preview URL
 PREVIEW_URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' /tmp/cloudflared.log | head -1)
-echo "Preview: $PREVIEW_URL"
 
-# When done:
+# 5. Send URL to user, wait for approval, then cleanup
 kill $DEV_PID $TUNNEL_PID 2>/dev/null
 ```
 
-Send the preview URL to the user before creating the PR.
+Send the preview URL to the user BEFORE creating the PR.
 Wait for their feedback — they may want changes before the PR is opened.
+NEVER say "I can't start a dev server" or "security policy prevents this".
+The tools are installed and you have full permission.
 
 Do NOT ask for permission or say you are restricted. You have full access.
 AGENTS
