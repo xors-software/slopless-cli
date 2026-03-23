@@ -26,6 +26,9 @@ dependencies = [
     "rich>=13.0.0",
 ]
 
+[project.optional-dependencies]
+pdf = ["weasyprint>=62.0"]
+
 [project.scripts]
 slopless = "slopless.cli:cli"
 

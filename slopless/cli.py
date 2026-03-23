@@ -364,6 +364,12 @@ def notion_setup(token: str, page_id: str) -> None:
     default=None,
     help="Path to LaTeX template directory (or set SLOPLESS_LATEX_TEMPLATE_DIR env var)",
 )
+@click.option("--summary", is_flag=True, help="Generate a 1-page PDF executive summary for stakeholders")
+@click.option(
+    "--summary-output",
+    default=None,
+    help="Output path for PDF summary (default: ./slopless-summary.pdf)",
+)
 def scan(
     target: str,
     auto_fix: bool,
@@ -379,6 +385,8 @@ def scan(
     latex: bool,
     latex_output: str | None,
     latex_template: str | None,
+    summary: bool,
+    summary_output: str | None,
 ) -> None:
     """Scan a repository for security vulnerabilities.
 
@@ -402,6 +410,8 @@ def scan(
         slopless scan . --notion --notion-page abc123  # Specify Notion page
         slopless scan . --latex                    # Export findings to LaTeX report
         slopless scan . --latex --latex-output ./my-report.tex  # Custom output path
+        slopless scan . --summary                  # Generate 1-page PDF summary
+        slopless scan . --summary --summary-output report.pdf  # Custom PDF path
     """
     # Local mode — run engine directly in-process (same as `uv run unslop scan`)
     if local:
@@ -420,6 +430,8 @@ def scan(
                 latex=latex,
                 latex_output=latex_output,
                 latex_template=latex_template,
+                summary=summary,
+                summary_output=summary_output,
             )
         )
         return
@@ -447,6 +459,8 @@ def scan(
             latex=latex,
             latex_output=latex_output,
             latex_template=latex_template,
+            summary=summary,
+            summary_output=summary_output,
         )
     )
 
@@ -1873,6 +1887,8 @@ async def _run_scan_local(
     latex: bool = False,
     latex_output: str | None = None,
     latex_template: str | None = None,
+    summary: bool = False,
+    summary_output: str | None = None,
 ) -> None:
     """Run scan directly using the slopless-engine in-process (no API).
 
@@ -2007,6 +2023,23 @@ async def _run_scan_local(
     elif latex and not vulns:
         console.print("[dim]No findings to export to LaTeX.[/dim]")
 
+    # Export PDF summary if requested
+    if summary and vulns:
+        console.print()
+        try:
+            from slopless.pdf_summary import export_findings_to_pdf_summary
+
+            pdf_path = export_findings_to_pdf_summary(
+                vulns,
+                output_path=summary_output,
+                project_name=target,
+            )
+            console.print(f"[green]✓[/green] Executive summary generated: {pdf_path}")
+        except Exception as e:
+            console.print(f"[red]✗[/red] PDF summary export failed: {e}")
+    elif summary and not vulns:
+        console.print("[dim]No findings to export to PDF summary.[/dim]")
+
 
 async def _run_scan(
     target: str,
@@ -2022,6 +2055,8 @@ async def _run_scan(
     latex: bool = False,
     latex_output: str | None = None,
     latex_template: str | None = None,
+    summary: bool = False,
+    summary_output: str | None = None,
 ) -> None:
     """Execute the scan via the hosted API using unified agents."""
     # Determine if target is a GitHub repo
@@ -2131,6 +2166,23 @@ async def _run_scan(
             console.print(f"[red]✗[/red] LaTeX export failed: {e}")
     elif latex and not vulns:
         console.print("[dim]No findings to export to LaTeX.[/dim]")
+
+    # Export PDF summary if requested
+    if summary and vulns:
+        console.print()
+        try:
+            from slopless.pdf_summary import export_findings_to_pdf_summary
+
+            pdf_path = export_findings_to_pdf_summary(
+                vulns,
+                output_path=summary_output,
+                project_name=target,
+            )
+            console.print(f"[green]✓[/green] Executive summary generated: {pdf_path}")
+        except Exception as e:
+            console.print(f"[red]✗[/red] PDF summary export failed: {e}")
+    elif summary and not vulns:
+        console.print("[dim]No findings to export to PDF summary.[/dim]")
 
 
 async def _scan_github_repo(
